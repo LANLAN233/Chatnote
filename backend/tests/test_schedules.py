@@ -1,10 +1,9 @@
 import pytest
+import pytest_asyncio
 from datetime import date, time, timedelta
 
-from app.models.models import Schedule
 
-
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_server(client, auth_headers):
     """创建一个测试伺服器"""
     response = await client.post(
@@ -15,7 +14,7 @@ async def test_server(client, auth_headers):
     return response.json()["data"]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_channel(client, auth_headers, test_server):
     """创建一个测试频道"""
     response = await client.post(
@@ -26,8 +25,8 @@ async def test_channel(client, auth_headers, test_server):
     return response.json()["data"]
 
 
-@pytest.fixture
-async def schedule(client, auth_headers, test_server, test_channel):
+@pytest_asyncio.fixture
+async def schedule_fixture(client, auth_headers):
     """创建一个测试日程"""
     data = {
         "title": "测试日程",
@@ -38,16 +37,29 @@ async def schedule(client, auth_headers, test_server, test_channel):
         "reminder_minutes": 15,
         "color": "#5865f2",
         "is_all_day": False,
-        "server_id": test_server["id"],
-        "channel_id": test_channel["id"],
     }
     response = await client.post("/api/schedules", json=data, headers=auth_headers)
     return response.json()
 
 
 @pytest.mark.asyncio
-async def test_create_schedule(client, auth_headers, test_server, test_channel):
+async def test_create_schedule(client, auth_headers):
     """测试创建日程"""
+    # 先创建伺服器和频道
+    server_resp = await client.post(
+        "/api/servers",
+        json={"name": "Math Server", "description": "Math"},
+        headers=auth_headers,
+    )
+    server_id = server_resp.json()["data"]["id"]
+    
+    channel_resp = await client.post(
+        f"/api/servers/{server_id}/channels",
+        json={"name": "Chapter 3", "description": "Limits"},
+        headers=auth_headers,
+    )
+    channel_id = channel_resp.json()["data"]["id"]
+    
     data = {
         "title": "高数课",
         "description": "第三章极限",
@@ -56,8 +68,8 @@ async def test_create_schedule(client, auth_headers, test_server, test_channel):
         "date": date.today().isoformat(),
         "reminder_minutes": 15,
         "color": "#5865f2",
-        "server_id": test_server["id"],
-        "channel_id": test_channel["id"],
+        "server_id": server_id,
+        "channel_id": channel_id,
     }
     response = await client.post("/api/schedules", json=data, headers=auth_headers)
     assert response.status_code == 201
@@ -112,17 +124,17 @@ async def test_create_all_day_schedule(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_get_schedules(client, auth_headers, schedule):
+async def test_get_schedules(client, auth_headers, schedule_fixture):
     """测试获取日程列表"""
     response = await client.get("/api/schedules", headers=auth_headers)
     assert response.status_code == 200
     result = response.json()
     assert len(result) >= 1
-    assert any(s["id"] == schedule["id"] for s in result)
+    assert any(s["id"] == schedule_fixture["id"] for s in result)
 
 
 @pytest.mark.asyncio
-async def test_get_schedules_with_date_range(client, auth_headers, schedule):
+async def test_get_schedules_with_date_range(client, auth_headers, schedule_fixture):
     """测试按日期范围获取日程"""
     today = date.today()
     start = (today - timedelta(days=1)).isoformat()
@@ -133,17 +145,17 @@ async def test_get_schedules_with_date_range(client, auth_headers, schedule):
     )
     assert response.status_code == 200
     result = response.json()
-    assert any(s["id"] == schedule["id"] for s in result)
+    assert any(s["id"] == schedule_fixture["id"] for s in result)
 
 
 @pytest.mark.asyncio
-async def test_get_schedule_detail(client, auth_headers, schedule):
+async def test_get_schedule_detail(client, auth_headers, schedule_fixture):
     """测试获取单个日程详情"""
-    response = await client.get(f"/api/schedules/{schedule['id']}", headers=auth_headers)
+    response = await client.get(f"/api/schedules/{schedule_fixture['id']}", headers=auth_headers)
     assert response.status_code == 200
     result = response.json()
-    assert result["id"] == schedule["id"]
-    assert result["title"] == schedule["title"]
+    assert result["id"] == schedule_fixture["id"]
+    assert result["title"] == schedule_fixture["title"]
 
 
 @pytest.mark.asyncio
@@ -154,11 +166,11 @@ async def test_get_nonexistent_schedule(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_update_schedule(client, auth_headers, schedule):
+async def test_update_schedule(client, auth_headers, schedule_fixture):
     """测试更新日程"""
     data = {"title": "更新后的日程", "color": "#eb459e"}
     response = await client.put(
-        f"/api/schedules/{schedule['id']}",
+        f"/api/schedules/{schedule_fixture['id']}",
         json=data,
         headers=auth_headers
     )
@@ -169,16 +181,16 @@ async def test_update_schedule(client, auth_headers, schedule):
 
 
 @pytest.mark.asyncio
-async def test_delete_schedule(client, auth_headers, schedule):
+async def test_delete_schedule(client, auth_headers, schedule_fixture):
     """测试删除日程"""
     response = await client.delete(
-        f"/api/schedules/{schedule['id']}",
+        f"/api/schedules/{schedule_fixture['id']}",
         headers=auth_headers
     )
     assert response.status_code == 204
 
     # 确认已删除
-    response = await client.get(f"/api/schedules/{schedule['id']}", headers=auth_headers)
+    response = await client.get(f"/api/schedules/{schedule_fixture['id']}", headers=auth_headers)
     assert response.status_code == 404
 
 
