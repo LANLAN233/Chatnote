@@ -82,11 +82,23 @@ async def search_notes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Note)
-        .where(Note.user_id == current_user.id, Note.content.ilike(f"%{q}%"))
-        .order_by(Note.created_at.desc())
-    )
+    fts_ids = []
+    try:
+        from app.services.search import fts_search
+        fts_ids = await fts_search(db, q, current_user.id, 20)
+    except Exception:
+        pass
+
+    if fts_ids:
+        result = await db.execute(
+            select(Note).where(Note.id.in_(fts_ids), Note.user_id == current_user.id).order_by(Note.created_at.desc())
+        )
+    else:
+        result = await db.execute(
+            select(Note)
+            .where(Note.user_id == current_user.id, Note.content.ilike(f"%{q}%"))
+            .order_by(Note.created_at.desc())
+        )
     notes = result.scalars().all()
     return ApiResponse(
         success=True,

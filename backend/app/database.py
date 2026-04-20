@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -24,3 +25,11 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+                    content, content='notes', content_rowid='id'
+                )
+            """))
+        except Exception:
+            pass

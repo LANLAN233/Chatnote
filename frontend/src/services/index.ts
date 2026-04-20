@@ -4,6 +4,8 @@ import type {
   Channel,
   ChannelCreate,
   ChannelUpdate,
+  ClassificationResult,
+  ConsoleResult,
   Note,
   NoteCreate,
   NoteList,
@@ -11,6 +13,8 @@ import type {
   Server,
   ServerCreate,
   ServerUpdate,
+  SmartCreateResult,
+  StatsData,
   User,
 } from "../types";
 
@@ -55,4 +59,23 @@ export const noteApi = {
   update: (id: number, data: NoteUpdate) => api.put<ApiResponse<Note>>(`/notes/${id}`, data),
   delete: (id: number) => api.delete<ApiResponse<null>>(`/notes/${id}`),
   search: (q: string) => api.get<ApiResponse<Note[]>>("/notes/search", { params: { q } }),
+};
+
+export const aiApi = {
+  classify: (content: string) =>
+    api.post<ApiResponse<ClassificationResult>>("/ai/classify", { content }),
+  smartCreate: (content: string, autoClassify = true) =>
+    api.post<ApiResponse<SmartCreateResult>>("/notes/smart-create", {
+      content,
+      auto_classify: autoClassify,
+    }),
+};
+
+export const consoleApi = {
+  execute: (input: string) =>
+    api.post<ApiResponse<ConsoleResult | SmartCreateResult>>("/console/execute", { input }),
+};
+
+export const statsApi = {
+  get: () => api.get<ApiResponse<StatsData>>("/stats"),
 };

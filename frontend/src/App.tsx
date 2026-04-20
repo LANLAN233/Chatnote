@@ -6,6 +6,7 @@ import RegisterPage from "./components/auth/RegisterPage";
 import AppLayout from "./components/layout/AppLayout";
 import HomePage from "./components/home/HomePage";
 import NoteList from "./components/notes/NoteList";
+import ConsoleView from "./components/console/ConsoleView";
 
 function App() {
   const { isAuthenticated, fetchMe } = useAuthStore();
@@ -25,6 +26,7 @@ function App() {
         element={isAuthenticated ? <AppLayout /> : <Navigate to="/login" />}
       >
         <Route index element={<HomePage />} />
+        <Route path="console" element={<ConsoleView />} />
         <Route path="server/:serverId" element={<HomePage />} />
         <Route path="server/:serverId/channel/:channelId" element={<NoteList />} />
       </Route>

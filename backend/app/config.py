@@ -14,6 +14,11 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    LLM_PROVIDER: str = "mock"
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = ""
+    LLM_BASE_URL: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

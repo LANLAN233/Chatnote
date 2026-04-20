@@ -131,6 +131,46 @@ class NoteListResponse(BaseModel):
     page_size: int
 
 
+class ClassifyRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+
+
+class ClassifyResponse(BaseModel):
+    suggested_server: str
+    suggested_channel: str
+    confidence: float
+    tags: list[str]
+    summary: str
+    is_new_server: bool
+    is_new_channel: bool
+    server_id: int | None = None
+    channel_id: int | None = None
+
+
+class ConsoleExecuteRequest(BaseModel):
+    input: str = Field(..., min_length=1)
+
+
+class ConsoleExecuteResponse(BaseModel):
+    type: str
+    content: str | None = None
+    data: object | None = None
+
+
+class NoteCreateWithClassify(BaseModel):
+    content: str = Field(..., min_length=1)
+    server_name: str | None = None
+    channel_name: str | None = None
+    auto_classify: bool = True
+
+
+class StatsResponse(BaseModel):
+    total_servers: int
+    total_channels: int
+    total_notes: int
+    recent_notes: list[NoteResponse]
+
+
 class ApiResponse(BaseModel):
     success: bool
     data: object | None = None
