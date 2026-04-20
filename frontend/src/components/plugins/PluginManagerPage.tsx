@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import pluginApi, { Plugin, PluginConfigSchema } from "../../services/pluginApi";
+import pluginApi, { type Plugin, type PluginConfigSchema } from "../../services/pluginApi";
 
 interface PluginConfigFormProps {
   plugin: Plugin;
