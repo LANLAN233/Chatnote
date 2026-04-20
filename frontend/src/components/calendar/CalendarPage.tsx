@@ -5,7 +5,7 @@ import ScheduleModal from "./ScheduleModal";
 import TodaySchedule from "./TodaySchedule";
 import type { Schedule, Server, Channel } from "../../types";
 import { scheduleApi } from "../../services/scheduleApi";
-import { serverApi } from "../../services/serverApi";
+import { serverApi, channelApi } from "../../services";
 
 export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
@@ -24,13 +24,15 @@ export default function CalendarPage() {
 
   const loadServers = async () => {
     try {
-      const serversData = await serverApi.getServers();
+      const response = await serverApi.list();
+      const serversData = response.data.data || [];
       setServers(serversData);
 
       // 加载所有频道
       const allChannels: Channel[] = [];
       for (const server of serversData) {
-        const serverChannels = await serverApi.getChannels(server.id);
+        const channelResponse = await channelApi.list(server.id);
+        const serverChannels = channelResponse.data.data || [];
         allChannels.push(...serverChannels);
       }
       setChannels(allChannels);
