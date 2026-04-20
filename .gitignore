@@ -1,0 +1,22 @@
+/demo
+/skills
+
+# Backend
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+chatnote.db
+.env
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

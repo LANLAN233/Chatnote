@@ -1,0 +1,85 @@
+# AGENTS.md — ChatNote ("以聊代记")
+
+## Project Status
+
+Graduation thesis (毕设) project. Phase 1 (项目骨架 + 基础 CRUD) is **complete**.
+
+- `backend/` — FastAPI backend with auth, Server/Channel/Note CRUD (23 tests passing)
+- `frontend/` — React 19 + TypeScript + TailwindCSS frontend with Discord-style UI (5 tests passing)
+- `docs/` — requirements and development plan (source of truth for architecture)
+- `demo/bishe-main/` — Gemini-based prototype (gitignored, reference only)
+- `skills/` — tooling (gitignored)
+
+### Phase Progress
+- ✅ Phase 1: 项目骨架 + 基础 CRUD
+- ⬜ Phase 2: AI 分类 + 控制台
+- ⬜ Phase 3: 日程表
+- ⬜ Phase 4: 插件/Bot 系统
+- ⬜ Phase 5: WebSocket + 打磨
+
+## Planned Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19 + TypeScript + TailwindCSS + Vite + Zustand |
+| Backend | Python FastAPI + SQLAlchemy 2.0 (async) + aiosqlite |
+| DB | SQLite with FTS5 full-text search |
+| AI | Multi-LLM (OpenAI / 智谱 / 通义千问) — backend-proxied, never from frontend |
+| Realtime | FastAPI WebSocket |
+| Testing | pytest (backend), Vitest (frontend) |
+
+## Architecture Notes
+
+- Discord-style hierarchy: **Server → Channel → Note** (not flat folders)
+- Single unified input box on home page; AI auto-classifies notes into server/channel
+- `@ServerName #ChannelName` syntax for manual targeting
+- Console supports `/` commands (`/help`, `/search`, `/todo`, `/schedule`, `/today`)
+- Plugin system: `BasePlugin` class with `on_message`, `on_command`, `on_schedule` hooks
+- API responses use uniform format: `{ success: bool, data: any, message?: string }`
+- LLM API keys encrypted server-side, never exposed to frontend
+
+## Communication
+
+- **默认使用中文回复**，除非用户明确指定其他语言。代码、注释、Commit Message 仍使用英文。
+
+## Development Workflow
+
+1. **`docs/` is the source of truth.** Always follow `docs/requirements.md` and `docs/development-plan.md` when building. If code conflicts with docs, trust docs.
+2. **One Phase at a time.** Follow the Phase order in `docs/development-plan.md` (Phase 1 → 2 → 3 → 4 → 5). Never jump ahead or work on multiple Phases in one session.
+3. **Per-Phase lifecycle:**
+   - Complete all tasks listed for the current Phase
+   - Run unit tests (pytest for backend, Vitest for frontend) — every Phase must pass
+   - Verify all deliverables and checkpoints listed in the development plan for that Phase
+   - If any checkpoint fails, fix before proceeding
+   - Commit with a Conventional Commits message in English (e.g. `feat: scaffold backend with server/channel/note CRUD`)
+   - **Stop immediately and report** — do not start the next Phase until instructed
+4. **Unit tests are mandatory.** Every Phase must include corresponding unit tests before the commit.
+
+## Code Conventions
+
+- **Python:** PEP8, Black formatting, isort imports
+- **TypeScript:** ESLint + Prettier
+- **Commits:** Conventional Commits (`feat:`, `fix:`, etc.)
+- **Git branches:** `main` (stable), `develop` (dev), `feature/xxx`, `fix/xxx`
+
+## Demo Prototype (Reference)
+
+Located at `demo/bishe-main/`. Run with:
+
+```
+cd demo/bishe-main
+npm install
+# Create .env.local with GEMINI_API_KEY=your_key
+npm run dev        # starts on port 3000
+```
+
+Key differences from planned real app: demo has no backend (in-memory state), uses Gemini directly from frontend, uses flat `#Subject` tags instead of `@Server #Channel`, and has hardcoded plugins.
+
+## When Building the Real App
+
+- Frontend goes in `frontend/`, backend in `backend/` at workspace root (see `docs/requirements.md` §5 for full tree)
+- Backend entrypoint: `backend/app/main.py`
+- Database migrations: Alembic (`backend/alembic/`)
+- Plugin directory: `backend/app/plugins/`
+- Built-in plugins: Math Solver, Summary Bot, Class Watcher
+- Dev prerequisites: Node.js 20+, Python 3.11+
