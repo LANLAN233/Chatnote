@@ -25,14 +25,14 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg-deep)]">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-[var(--accent)] flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 rounded-2xl bg-[#5865f2] flex items-center justify-center mx-auto mb-4">
             <BookOpen className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-white">Welcome back!</h1>
           <p className="text-[var(--text-muted)] mt-2">We're so excited to see you again!</p>
         </div>
 
-        <div className="bg-[var(--bg-secondary)] rounded-lg p-6">
+        <div className="bg-[var(--bg-secondary)] rounded-xl p-6 border border-[var(--border-color)] shadow-lg">
           {error && (
             <div className="mb-4 p-3 bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)] rounded text-sm">
               {error}
@@ -46,7 +46,7 @@ export default function LoginPage() {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2.5 bg-[var(--bg-tertiary)] text-white rounded border border-[var(--bg-active)] focus:border-[var(--accent)] transition-colors text-[15px]"
+              className="w-full px-3 py-2.5 bg-[var(--bg-deep)] text-white rounded-lg border border-[var(--border-color)] focus:border-[#5865f2] outline-none transition-colors text-[15px]"
               required
             />
 
@@ -57,13 +57,13 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2.5 bg-[var(--bg-tertiary)] text-white rounded border border-[var(--bg-active)] focus:border-[var(--accent)] transition-colors text-[15px]"
+              className="w-full px-3 py-2.5 bg-[var(--bg-deep)] text-white rounded-lg border border-[var(--border-color)] focus:border-[#5865f2] outline-none transition-colors text-[15px]"
               required
             />
 
             <button
               type="submit"
-              className="w-full mt-6 py-2.5 bg-[var(--accent)] text-white rounded font-medium text-[15px] hover:bg-[var(--accent-hover)] transition-colors"
+              className="w-full mt-6 py-2.5 bg-[#5865f2] text-white rounded-lg font-bold text-[15px] hover:bg-[#4752c4] active:scale-[0.98] transition-all"
             >
               Log In
             </button>

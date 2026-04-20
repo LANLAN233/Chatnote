@@ -48,51 +48,44 @@ export default function ClassifyModal({ content, onConfirm, onClose }: ClassifyM
 
   const handleConfirm = () => {
     if (result) {
-      onConfirm({
-        ...result,
-        suggested_server: editServer,
-        suggested_channel: editChannel,
-      });
+      onConfirm({ ...result, suggested_server: editServer, suggested_channel: editChannel });
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-[var(--bg-secondary)] rounded-lg p-6 w-full max-w-md shadow-xl"
+        className="bg-[var(--bg-primary)] w-full max-w-md rounded-xl shadow-2xl border border-[var(--border-color)] overflow-hidden animate-zoom-in"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-[var(--accent)]" />
-            <h2 className="text-lg font-bold text-white">AI Classification</h2>
-          </div>
-          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-white transition-colors">
+        <div className="p-4 border-b border-[var(--border-color)] flex justify-between items-center">
+          <h3 className="font-bold text-white flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-[#5865f2]" /> AI Classification
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <RefreshCw className="w-6 h-6 text-[var(--accent)] animate-spin" />
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="w-6 h-6 text-[#5865f2] animate-spin" />
             <span className="ml-3 text-[var(--text-muted)]">Analyzing...</span>
           </div>
         ) : result ? (
-          <div className="space-y-4">
-            <div className="bg-[var(--bg-deep)] p-3 rounded-lg">
+          <div className="p-4 space-y-4">
+            <div className="bg-[var(--bg-deep)] p-3 rounded-lg border border-[var(--border-color)]">
               <div className="text-[11px] font-bold text-[var(--text-muted)] uppercase mb-1">Your Note</div>
               <div className="text-[13px] text-[var(--text-primary)] line-clamp-3">{content}</div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1.5">
-                Server
-              </label>
+              <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1.5">Server</label>
               <input
                 type="text"
                 value={editServer}
                 onChange={(e) => setEditServer(e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--bg-tertiary)] text-white rounded border border-[var(--bg-active)] focus:border-[var(--accent)] text-[14px]"
+                className="w-full px-3 py-2 bg-[var(--bg-deep)] text-white rounded-lg border border-[var(--border-color)] focus:border-[#5865f2] text-[14px] outline-none transition-colors"
               />
               {result.is_new_server && (
                 <span className="text-[11px] text-[var(--warning)] mt-1 block">New server will be created</span>
@@ -100,14 +93,12 @@ export default function ClassifyModal({ content, onConfirm, onClose }: ClassifyM
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1.5">
-                Channel
-              </label>
+              <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1.5">Channel</label>
               <input
                 type="text"
                 value={editChannel}
                 onChange={(e) => setEditChannel(e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--bg-tertiary)] text-white rounded border border-[var(--bg-active)] focus:border-[var(--accent)] text-[14px]"
+                className="w-full px-3 py-2 bg-[var(--bg-deep)] text-white rounded-lg border border-[var(--border-color)] focus:border-[#5865f2] text-[14px] outline-none transition-colors"
               />
               {result.is_new_channel && (
                 <span className="text-[11px] text-[var(--warning)] mt-1 block">New channel will be created</span>
@@ -119,12 +110,7 @@ export default function ClassifyModal({ content, onConfirm, onClose }: ClassifyM
                 <div className="text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1.5">Tags</div>
                 <div className="flex flex-wrap gap-1.5">
                   {result.tags.map((tag, i) => (
-                    <span
-                      key={i}
-                      className="bg-[var(--accent)]/20 text-[var(--accent)] text-[11px] px-2 py-0.5 rounded"
-                    >
-                      {tag}
-                    </span>
+                    <span key={i} className="bg-[#5865f2]/20 text-[#5865f2] text-[11px] px-2 py-0.5 rounded">{tag}</span>
                   ))}
                 </div>
               </div>
@@ -143,33 +129,20 @@ export default function ClassifyModal({ content, onConfirm, onClose }: ClassifyM
                   className="h-2 rounded-full transition-all"
                   style={{
                     width: `${Math.round(result.confidence * 100)}%`,
-                    backgroundColor:
-                      result.confidence >= 0.8
-                        ? "var(--success)"
-                        : result.confidence >= 0.5
-                          ? "var(--warning)"
-                          : "var(--danger)",
+                    backgroundColor: result.confidence >= 0.8 ? "var(--success)" : result.confidence >= 0.5 ? "var(--warning)" : "var(--danger)",
                   }}
                 />
               </div>
-              <span className="text-[var(--text-muted)]">
-                {Math.round(result.confidence * 100)}% confidence
-              </span>
+              <span className="text-[var(--text-muted)]">{Math.round(result.confidence * 100)}%</span>
             </div>
 
-            <div className="flex gap-3 justify-end pt-2">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-[var(--text-secondary)] hover:text-white transition-colors text-[14px]"
-              >
-                Cancel
-              </button>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-300 hover:underline">Cancel</button>
               <button
                 onClick={handleConfirm}
-                className="px-5 py-2 bg-[var(--accent)] text-white rounded font-medium hover:bg-[var(--accent-hover)] transition-colors text-[14px] flex items-center gap-2"
+                className="px-6 py-2 rounded-lg font-bold text-white bg-[#5865f2] hover:bg-[#4752c4] active:scale-95 transition-all flex items-center gap-2"
               >
-                <Check className="w-4 h-4" />
-                Confirm
+                <Check className="w-4 h-4" /> Confirm
               </button>
             </div>
           </div>

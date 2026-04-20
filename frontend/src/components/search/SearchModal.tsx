@@ -34,9 +34,9 @@ export default function SearchModal({ onClose, onNoteClick }: SearchModalProps) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-[var(--bg-secondary)] rounded-lg w-full max-w-lg shadow-2xl border border-[var(--border-color)] overflow-hidden"
+        className="bg-[var(--bg-primary)] w-full max-w-lg rounded-xl shadow-2xl border border-[var(--border-color)] overflow-hidden animate-zoom-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-color)]">
@@ -54,39 +54,44 @@ export default function SearchModal({ onClose, onNoteClick }: SearchModalProps) 
               <X className="w-4 h-4" />
             </button>
           )}
+          <kbd className="px-2 py-0.5 bg-[var(--bg-deep)] text-[var(--text-muted)] text-xs rounded border border-[var(--border-light)]">ESC</kbd>
         </div>
 
         <div className="max-h-80 overflow-y-auto">
           {isSearching && (
-            <div className="px-4 py-8 text-center text-[var(--text-muted)] text-sm">Searching...</div>
+            <div className="flex gap-4 px-4 py-4 animate-pulse">
+              <div className="w-10 h-10 rounded-full bg-[var(--border-light)] shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 bg-[var(--border-light)] rounded w-1/3" />
+                <div className="h-4 bg-[var(--border-light)] rounded w-2/3" />
+              </div>
+            </div>
           )}
           {!isSearching && hasSearched && results.length === 0 && (
             <div className="px-4 py-8 text-center text-[var(--text-muted)] text-sm">
-              No results found for &ldquo;{query}&rdquo;
+              No results for &ldquo;{query}&rdquo;
             </div>
           )}
           {!isSearching &&
             results.map((note) => (
               <div
                 key={note.id}
-                className="px-4 py-3 hover:bg-[var(--bg-hover)] cursor-pointer border-b border-[var(--border-color)] last:border-0"
+                className="px-4 py-3 hover:bg-[var(--bg-hover)] cursor-pointer border-b border-[var(--border-color)] last:border-0 transition-colors"
                 onClick={() => onNoteClick?.(note)}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <Hash className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                  <span className="text-[12px] text-[var(--text-muted)]">
-                    Channel #{note.channel_id}
-                  </span>
+                  <Hash className="w-3.5 h-3.5 text-[var(--text-dim)]" />
+                  <span className="text-[12px] text-[var(--text-muted)]">Channel #{note.channel_id}</span>
                   <span className="text-[12px] text-[var(--text-muted)] ml-auto">
                     {new Date(note.created_at).toLocaleDateString()}
                   </span>
                 </div>
-                <div className="text-[14px] text-[var(--text-primary)] line-clamp-2 pl-5">
+                <p className="text-[14px] text-[var(--text-primary)] line-clamp-2 pl-5 leading-relaxed">
                   {note.content}
-                </div>
+                </p>
               </div>
             ))}
-          {!hasSearched && (
+          {!hasSearched && !isSearching && (
             <div className="px-4 py-8 text-center text-[var(--text-muted)] text-sm">
               Type to search across all your notes
             </div>
