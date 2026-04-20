@@ -1,4 +1,7 @@
-from datetime import datetime
+from __future__ import annotations
+
+import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,8 +24,8 @@ class UserResponse(BaseModel):
     avatar: str | None
     status: str
     preferred_llm: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
 
     model_config = {"from_attributes": True}
 
@@ -53,8 +56,8 @@ class ServerResponse(BaseModel):
     icon: str | None
     description: str | None
     sort_order: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
 
     model_config = {"from_attributes": True}
 
@@ -80,8 +83,8 @@ class ChannelResponse(BaseModel):
     type: str
     description: str | None
     sort_order: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
 
     model_config = {"from_attributes": True}
 
@@ -118,8 +121,8 @@ class NoteResponse(BaseModel):
     ai_confidence: float | None
     ai_tags: str | None
     is_edited: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
 
     model_config = {"from_attributes": True}
 
@@ -175,3 +178,78 @@ class ApiResponse(BaseModel):
     success: bool
     data: object | None = None
     message: str | None = None
+
+
+class RepeatRule(BaseModel):
+    type: Literal["none", "daily", "weekly", "monthly"]
+    days: list[int] | None = None
+    start_date: datetime.date | None = None
+    end_date: datetime.date | None = None
+    interval: int = 1
+
+
+class ScheduleCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str | None = None
+    start_time: datetime.time
+    end_time: datetime.time | None = None
+    date: datetime.date | None = None
+    day_of_week: int | None = Field(None, ge=0, le=6)
+    repeat_rule: str | None = None
+    reminder_minutes: int = 15
+    color: str = "#5865f2"
+    is_all_day: bool = False
+    server_id: int | None = None
+    channel_id: int | None = None
+
+
+class ScheduleUpdate(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=200)
+    description: str | None = None
+    start_time: datetime.time | None = None
+    end_time: datetime.time | None = None
+    date: datetime.date | None = None
+    day_of_week: int | None = Field(None, ge=0, le=6)
+    repeat_rule: str | None = None
+    reminder_minutes: int | None = None
+    color: str | None = None
+    is_all_day: bool | None = None
+    server_id: int | None = None
+    channel_id: int | None = None
+
+
+class ScheduleResponse(BaseModel):
+    id: int
+    user_id: int
+    server_id: int | None
+    channel_id: int | None
+    title: str
+    description: str | None
+    start_time: datetime.time
+    end_time: datetime.time | None
+    date: datetime.date | None
+    day_of_week: int | None
+    repeat_rule: str | None
+    reminder_minutes: int
+    color: str
+    is_all_day: bool
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ScheduleParseRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+class ScheduleParseResponse(BaseModel):
+    title: str
+    description: str | None
+    start_time: datetime.time | None
+    end_time: datetime.time | None
+    date: datetime.date | None
+    day_of_week: int | None
+    repeat_rule: RepeatRule | None
+    is_all_day: bool
+    confidence: float

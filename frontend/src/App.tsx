@@ -7,9 +7,12 @@ import AppLayout from "./components/layout/AppLayout";
 import HomePage from "./components/home/HomePage";
 import NoteList from "./components/notes/NoteList";
 import ConsoleView from "./components/console/ConsoleView";
+import CalendarPage from "./components/calendar/CalendarPage";
+import { useNotification } from "./hooks/useNotification";
 
 function App() {
   const { isAuthenticated, fetchMe } = useAuthStore();
+  useNotification();
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -27,6 +30,7 @@ function App() {
       >
         <Route index element={<HomePage />} />
         <Route path="console" element={<ConsoleView />} />
+        <Route path="calendar" element={<CalendarPage />} />
         <Route path="server/:serverId" element={<HomePage />} />
         <Route path="server/:serverId/channel/:channelId" element={<NoteList />} />
       </Route>

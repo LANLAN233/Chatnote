@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime, time
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -74,3 +74,28 @@ class Note(Base):
 
     channel: Mapped["Channel"] = relationship(back_populates="notes")
     user: Mapped["User"] = relationship()
+
+
+class Schedule(Base):
+    __tablename__ = "schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    server_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("servers.id", ondelete="SET NULL"), nullable=True)
+    channel_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("channels.id", ondelete="SET NULL"), nullable=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    day_of_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    repeat_rule: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reminder_minutes: Mapped[int] = mapped_column(Integer, default=15)
+    color: Mapped[str] = mapped_column(String, default="#5865f2")
+    is_all_day: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user: Mapped["User"] = relationship()
+    server: Mapped["Server | None"] = relationship()
+    channel: Mapped["Channel | None"] = relationship()

@@ -145,3 +145,76 @@ export interface ConsoleLog {
   content: string;
   timestamp: Date;
 }
+
+export interface RepeatRule {
+  type: "none" | "daily" | "weekly" | "monthly";
+  days?: number[];
+  start_date?: string;
+  end_date?: string;
+  interval?: number;
+}
+
+export interface Schedule {
+  id: number;
+  user_id: number;
+  server_id: number | null;
+  channel_id: number | null;
+  title: string;
+  description: string | null;
+  start_time: string;
+  end_time: string | null;
+  date: string | null;
+  day_of_week: number | null;
+  repeat_rule: string | null;
+  reminder_minutes: number;
+  color: string;
+  is_all_day: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleCreate {
+  title: string;
+  description?: string;
+  start_time: string;
+  end_time?: string;
+  date?: string;
+  day_of_week?: number;
+  repeat_rule?: string;
+  reminder_minutes?: number;
+  color?: string;
+  is_all_day?: boolean;
+  server_id?: number;
+  channel_id?: number;
+}
+
+export interface ScheduleUpdate {
+  title?: string;
+  description?: string;
+  start_time?: string;
+  end_time?: string;
+  date?: string;
+  day_of_week?: number;
+  repeat_rule?: string;
+  reminder_minutes?: number;
+  color?: string;
+  is_all_day?: boolean;
+  server_id?: number;
+  channel_id?: number;
+}
+
+export interface ScheduleParseRequest {
+  text: string;
+}
+
+export interface ScheduleParseResponse {
+  title: string;
+  description: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  date: string | null;
+  day_of_week: number | null;
+  repeat_rule: RepeatRule | null;
+  is_all_day: boolean;
+  confidence: number;
+}

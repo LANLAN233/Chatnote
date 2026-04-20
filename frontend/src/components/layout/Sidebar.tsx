@@ -14,7 +14,7 @@ export default function Sidebar() {
 
   const navIcons = [
     { id: "chat", Icon: MessageSquare, color: "bg-[#5865f2]", tooltip: "Study Chat", path: "/" },
-    { id: "calendar", Icon: Calendar, color: "bg-[#23a559]", tooltip: "Schedule", path: "/" },
+    { id: "calendar", Icon: Calendar, color: "bg-[#23a559]", tooltip: "Schedule", path: "/calendar" },
     { id: "plugins", Icon: Puzzle, color: "bg-[#f23f43]", tooltip: "Plugins & Bots", path: "/" },
   ];
 

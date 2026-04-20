@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.logging_config import setup_logging
-from app.routers import ai, auth, channels, console, notes, servers
+from app.routers import ai, auth, channels, console, notes, schedules, servers
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ app.include_router(auth.router)
 app.include_router(servers.router)
 app.include_router(channels.router)
 app.include_router(notes.router)
+app.include_router(schedules.router)
 app.include_router(ai.router)
 app.include_router(console.router)
 
