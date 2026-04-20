@@ -1,5 +1,5 @@
 import api from "./api";
-import { ApiResponse } from "./api";
+import type { ApiResponse } from "../types";
 
 export interface Attachment {
   id: number;
@@ -15,21 +15,21 @@ export const attachmentApi = {
   upload: async (noteId: number, file: File): Promise<Attachment> => {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await api.post<ApiResponse>(`/attachments/upload/${noteId}`, formData, {
+    const response = await api.post<ApiResponse<Attachment>>(`/attachments/upload/${noteId}`, formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
     });
-    return response.data.data;
+    return response.data.data as Attachment;
   },
 
   getByNoteId: async (noteId: number): Promise<Attachment[]> => {
-    const response = await api.get<ApiResponse>(`/attachments/note/${noteId}`);
-    return response.data.data || [];
+    const response = await api.get<ApiResponse<Attachment[]>>(`/attachments/note/${noteId}`);
+    return (response.data.data as Attachment[]) || [];
   },
 
   delete: async (attachmentId: number): Promise<void> => {
-    await api.delete<ApiResponse>(`/attachments/${attachmentId}`);
+    await api.delete<ApiResponse<void>>(`/attachments/${attachmentId}`);
   },
 };
 

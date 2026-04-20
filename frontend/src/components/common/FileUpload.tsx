@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Paperclip, X, File, Download } from "lucide-react";
 import { useFileUpload } from "../../hooks/useFileUpload";
-import { attachmentApi, Attachment } from "../../services/attachmentApi";
+import { attachmentApi, type Attachment } from "../../services/attachmentApi";
 
 interface FileUploadProps {
   noteId: number | null;

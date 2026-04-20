@@ -1,7 +1,9 @@
 import { useCallback, useState } from "react";
 
+import type { Attachment } from "../services/attachmentApi";
+
 interface UseFileUploadOptions {
-  onUploadSuccess?: (attachment: { id: number; filename: string }) => void;
+  onUploadSuccess?: (attachment: Attachment) => void;
   onUploadError?: (error: string) => void;
 }
 
