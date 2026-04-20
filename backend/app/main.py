@@ -6,13 +6,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.logging_config import setup_logging
-from app.routers import ai, auth, channels, console, notes, schedules, servers
+from app.plugins import plugin_manager
+from app.routers import ai, auth, channels, console, notes, plugins, schedules, servers
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(settings.DEBUG)
     await init_db()
+    # Load builtin plugins
+    plugin_manager.load_builtin_plugins()
     yield
 
 
@@ -37,6 +40,7 @@ app.include_router(notes.router)
 app.include_router(schedules.router)
 app.include_router(ai.router)
 app.include_router(console.router)
+app.include_router(plugins.router)
 
 
 @app.get("/api/health")

@@ -99,3 +99,20 @@ class Schedule(Base):
     user: Mapped["User"] = relationship()
     server: Mapped["Server | None"] = relationship()
     channel: Mapped["Channel | None"] = relationship()
+
+
+class Plugin(Base):
+    __tablename__ = "plugins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    version: Mapped[str] = mapped_column(String, default="1.0.0")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    author: Mapped[str | None] = mapped_column(String, nullable=True)
+    entry_point: Mapped[str] = mapped_column(String, nullable=False)  # Python module path or file path
+    config_schema: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON schema for config
+    config: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON config data
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    installed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

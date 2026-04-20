@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Channel, Note, Server
+from app.plugins import plugin_manager
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,9 @@ HELP_TEXT = """Available commands:
   /search <query> - Search all notes
   /todo <content> - Create a todo note
   /today          - Show today's activity
-  /stats          - Show note statistics"""
+  /stats          - Show note statistics
+  /plugins        - Show plugin status
+  /calc <expr>    - Calculate math expression"""
 
 
 async def handle_help(args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
@@ -159,6 +162,42 @@ async def handle_stats(args: str, db: AsyncSession, user_id: int) -> dict[str, A
     return {"type": "text", "content": "\n".join(lines)}
 
 
+async def handle_plugins(args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
+    """Show plugin status."""
+    plugins = plugin_manager.get_all_plugins()
+
+    if not plugins:
+        return {"type": "text", "content": "No plugins installed."}
+
+    lines = ["Plugins:"]
+    for plugin in plugins:
+        status = "enabled" if plugin.enabled else "disabled"
+        builtin = " (builtin)" if getattr(plugin.instance, "is_builtin", False) else ""
+        lines.append(f"  {'*' if plugin.enabled else ' '} {plugin.name} v{plugin.version} [{status}]{builtin}")
+        lines.append(f"    {plugin.instance.description or 'No description'}")
+
+    lines.append("\nType /calc <expression> to use Math Solver")
+    return {"type": "text", "content": "\n".join(lines)}
+
+
+async def handle_calc(args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
+    """Handle /calc command via Math Solver plugin."""
+    if not args.strip():
+        return {"type": "text", "content": "Usage: /calc <expression>  e.g., /calc 2 + 2 * 3"}
+
+    # Dispatch to plugins
+    responses = await plugin_manager.dispatch_command("calc", args.split(), {"user_id": user_id})
+
+    if responses:
+        return {
+            "type": "plugin_response",
+            "content": responses[0]["message"],
+            "data": {"plugin_responses": responses},
+        }
+
+    return {"type": "text", "content": f"Calculating: {args}..."}
+
+
 COMMAND_REGISTRY: dict[str, Any] = {
     "help": handle_help,
     "clear": handle_clear,
@@ -166,12 +205,22 @@ COMMAND_REGISTRY: dict[str, Any] = {
     "todo": handle_todo,
     "today": handle_today,
     "stats": handle_stats,
+    "plugins": handle_plugins,
+    "calc": handle_calc,
 }
 
 
 async def execute_command(command: str, args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
     handler = COMMAND_REGISTRY.get(command)
     if not handler:
+        # Try to dispatch to plugins
+        responses = await plugin_manager.dispatch_command(command, args.split(), {"user_id": user_id})
+        if responses:
+            return {
+                "type": "plugin_response",
+                "content": "\n".join([r["message"] for r in responses]),
+                "data": {"plugin_responses": responses},
+            }
         return {
             "type": "error",
             "content": f"Unknown command: /{command}\nType /help to see available commands.",

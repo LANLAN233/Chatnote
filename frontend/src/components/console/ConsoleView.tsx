@@ -45,7 +45,14 @@ export default function ConsoleView() {
 
     try {
       const { data: response } = await consoleApi.execute(text);
-      const result = response.data as { type: string; content?: string; data?: unknown; note?: unknown };
+      const result = response.data as { type: string; content?: string; data?: unknown; note?: unknown; plugin_responses?: Array<{ plugin_name: string; message: string }> };
+
+      // Display plugin responses first
+      if (result.plugin_responses && result.plugin_responses.length > 0) {
+        result.plugin_responses.forEach((pr) => {
+          addLog("system", `[${pr.plugin_name}] ${pr.message}`);
+        });
+      }
 
       if (result.type === "clear") {
         setLogs([
@@ -55,6 +62,8 @@ export default function ConsoleView() {
         addLog("output", result.content || "Todo created.");
       } else if (result.type === "error") {
         addLog("error", result.content || "Error occurred.");
+      } else if (result.type === "plugin_response") {
+        addLog("output", result.content || "Plugin executed.");
       } else if (result.note) {
         addLog("output", "Note saved successfully.");
       } else if (result.content) {

@@ -253,3 +253,61 @@ class ScheduleParseResponse(BaseModel):
     repeat_rule: RepeatRule | None
     is_all_day: bool
     confidence: float
+
+
+class PluginConfigSchema(BaseModel):
+    type: str
+    title: str
+    description: str | None = None
+    default: object | None = None
+    required: bool = False
+    enum: list[object] | None = None
+
+
+class PluginCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    version: str = Field(default="1.0.0", max_length=20)
+    description: str | None = None
+    author: str | None = None
+    entry_point: str = Field(..., min_length=1)  # Python module path
+    config_schema: list[PluginConfigSchema] | None = None
+    config: dict | None = None
+    is_builtin: bool = False
+
+
+class PluginUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100)
+    version: str | None = Field(None, max_length=20)
+    description: str | None = None
+    author: str | None = None
+    config: dict | None = None
+    is_enabled: bool | None = None
+
+
+class PluginResponse(BaseModel):
+    id: int
+    name: str
+    version: str
+    description: str | None
+    author: str | None
+    entry_point: str
+    config_schema: list[PluginConfigSchema] | None
+    config: dict | None
+    is_enabled: bool
+    is_builtin: bool
+    installed_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PluginToggleRequest(BaseModel):
+    is_enabled: bool
+
+
+class PluginMessage(BaseModel):
+    plugin_name: str
+    message: str
+    type: str = "info"  # info, warning, success, error
+    timestamp: datetime.datetime = Field(default_factory=datetime.datetime.now)
+    data: dict | None = None
