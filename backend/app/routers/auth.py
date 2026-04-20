@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,34 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+
+async def get_current_user_ws(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> int:
+    """Authenticate WebSocket connection using query parameter or header."""
+    token = websocket.query_params.get("token")
+    if not token:
+        # Try to get from header
+        auth_header = websocket.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    
+    if not token:
+        await websocket.close(code=4001, reason="Missing authentication token")
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+    
+    payload = decode_access_token(token)
+    if payload is None:
+        await websocket.close(code=4001, reason="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    user_id = int(payload.get("sub", 0))
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        await websocket.close(code=4001, reason="User not found")
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return user_id
 
 
 @router.post("/register", response_model=ApiResponse, status_code=201)

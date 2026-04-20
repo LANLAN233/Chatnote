@@ -311,3 +311,15 @@ class PluginMessage(BaseModel):
     type: str = "info"  # info, warning, success, error
     timestamp: datetime.datetime = Field(default_factory=datetime.datetime.now)
     data: dict | None = None
+
+
+class AttachmentResponse(BaseModel):
+    id: int
+    note_id: int
+    filename: str
+    file_path: str
+    file_type: str | None
+    file_size: int
+    created_at: datetime.datetime
+
+    model_config = {"from_attributes": True}

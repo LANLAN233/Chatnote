@@ -1,13 +1,15 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import init_db
 from app.logging_config import setup_logging
 from app.plugins import plugin_manager
-from app.routers import ai, auth, channels, console, notes, plugins, schedules, servers
+from app.routers import ai, attachments, auth, channels, console, export, notes, plugins, schedules, servers, websocket as ws_router
 
 
 @asynccontextmanager
@@ -41,6 +43,14 @@ app.include_router(schedules.router)
 app.include_router(ai.router)
 app.include_router(console.router)
 app.include_router(plugins.router)
+app.include_router(attachments.router)
+app.include_router(export.router)
+app.include_router(ws_router.router)
+
+# Mount static files for uploads
+upload_dir = Path(settings.UPLOAD_DIR)
+upload_dir.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
 
 
 @app.get("/api/health")

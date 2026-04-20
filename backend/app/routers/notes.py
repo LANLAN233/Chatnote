@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models.models import Channel, Note, Server, User
 from app.routers.auth import get_current_user
 from app.schemas.schemas import ApiResponse, NoteCreate, NoteListResponse, NoteResponse, NoteUpdate
+from app.services.websocket import manager as ws_manager
 
 router = APIRouter(tags=["notes"])
 
@@ -73,6 +74,10 @@ async def create_note(
     db.add(note)
     await db.flush()
     await db.refresh(note)
+    
+    # Broadcast via WebSocket
+    await ws_manager.broadcast_note_created(current_user.id, NoteResponse.model_validate(note).model_dump())
+    
     return ApiResponse(success=True, data=NoteResponse.model_validate(note).model_dump(), message="Note created")
 
 
@@ -136,6 +141,10 @@ async def update_note(
     note.is_edited = True
     await db.flush()
     await db.refresh(note)
+    
+    # Broadcast via WebSocket
+    await ws_manager.broadcast_note_updated(current_user.id, NoteResponse.model_validate(note).model_dump())
+    
     return ApiResponse(success=True, data=NoteResponse.model_validate(note).model_dump(), message="Note updated")
 
 
@@ -150,4 +159,8 @@ async def delete_note(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     await db.delete(note)
+    
+    # Broadcast via WebSocket
+    await ws_manager.broadcast_note_deleted(current_user.id, note_id)
+    
     return ApiResponse(success=True, message="Note deleted")

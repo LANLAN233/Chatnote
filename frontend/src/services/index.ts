@@ -79,3 +79,7 @@ export const consoleApi = {
 export const statsApi = {
   get: () => api.get<ApiResponse<StatsData>>("/stats"),
 };
+
+export { attachmentApi, type Attachment } from "./attachmentApi";
+export { exportApi } from "./exportApi";
+export { default as wsService } from "./websocket";

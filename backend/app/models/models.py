@@ -74,6 +74,7 @@ class Note(Base):
 
     channel: Mapped["Channel"] = relationship(back_populates="notes")
     user: Mapped["User"] = relationship()
+    attachments: Mapped[list["Attachment"]] = relationship("Attachment", back_populates="note", cascade="all, delete-orphan")
 
 
 class Schedule(Base):

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Home, MessageSquare, Calendar, Puzzle, Plus } from "lucide-react";
+import { Home, MessageSquare, Calendar, Puzzle, Plus, Settings } from "lucide-react";
 import { useServerStore, useAuthStore } from "../../stores";
 import ServerModal from "../servers/ServerModal";
+import SettingsModal from "../settings/SettingsModal";
 
 export default function Sidebar() {
   const { servers, currentServerId, setCurrentServer, deleteServer } = useServerStore();
@@ -11,6 +12,7 @@ export default function Sidebar() {
   const [showModal, setShowModal] = useState(false);
   const [editingServer, setEditingServer] = useState<{ id: number; name: string; description?: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const navIcons = [
     { id: "chat", Icon: MessageSquare, color: "bg-[#5865f2]", tooltip: "Study Chat", path: "/" },
@@ -88,7 +90,14 @@ export default function Sidebar() {
         ))}
       </div>
 
-      <div className="mt-2">
+      <div className="mt-2 flex flex-col items-center gap-2">
+        <div
+          className="w-12 h-12 rounded-3xl bg-[#313338] hover:rounded-xl flex items-center justify-center cursor-pointer text-[var(--text-secondary)] hover:bg-[var(--text-muted)] hover:text-white transition-all duration-200"
+          onClick={() => setShowSettings(true)}
+          title="Settings"
+        >
+          <Settings className="w-5 h-5" />
+        </div>
         <div
           className="w-12 h-12 rounded-full bg-[#313338] flex items-center justify-center cursor-pointer text-sm text-[var(--text-secondary)] hover:bg-[var(--danger)] hover:text-white transition-colors relative"
           onClick={logout}
@@ -139,6 +148,8 @@ export default function Sidebar() {
           server={editingServer || undefined}
         />
       )}
+      
+      <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
 }

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.config import settings
 from app.database import Base
 from app.models.models import Channel, Note, Plugin, Schedule, Server, User
+from app.models.attachment import Attachment
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { authApi, serverApi, channelApi, noteApi } from "../services";
+import wsService from "../services/websocket";
 import type { Channel, Note, NoteList, Server, User } from "../types";
 
 interface AuthState {
@@ -24,6 +25,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (responseData) {
       localStorage.setItem("token", responseData.token.access_token);
       set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true });
+      wsService.connect();
     }
   },
   register: async (username, password, displayName) => {
@@ -32,10 +34,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (responseData) {
       localStorage.setItem("token", responseData.token.access_token);
       set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true });
+      wsService.connect();
     }
   },
   logout: () => {
     localStorage.removeItem("token");
+    wsService.disconnect();
     set({ user: null, token: null, isAuthenticated: false });
   },
   fetchMe: async () => {
@@ -43,6 +47,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const { data } = await authApi.me();
       if (data.data) {
         set({ user: data.data, isAuthenticated: true });
+        wsService.connect();
       }
     } catch {
       set({ user: null, token: null, isAuthenticated: false });
@@ -134,11 +139,16 @@ interface NoteState {
   pageSize: number;
   currentNote: Note | null;
   isLoading: boolean;
+  realtimeNotes: Note[];
   fetchNotes: (channelId: number, page?: number, search?: string) => Promise<void>;
   createNote: (data: { channel_id: number; content: string; content_type?: string }) => Promise<void>;
   updateNote: (id: number, data: { content?: string }) => Promise<void>;
   deleteNote: (id: number) => Promise<void>;
   searchNotes: (query: string) => Promise<Note[]>;
+  addRealtimeNote: (note: Note) => void;
+  updateRealtimeNote: (note: Note) => void;
+  removeRealtimeNote: (noteId: number) => void;
+  clearRealtimeNotes: () => void;
 }
 
 export const useNoteStore = create<NoteState>((set, get) => ({
@@ -148,6 +158,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   pageSize: 20,
   currentNote: null,
   isLoading: false,
+  realtimeNotes: [],
   fetchNotes: async (channelId, page = 1, search) => {
     set({ isLoading: true });
     const { data } = await noteApi.list(channelId, page, get().pageSize, search);
@@ -185,4 +196,23 @@ export const useNoteStore = create<NoteState>((set, get) => ({
     const { data } = await noteApi.search(query);
     return (data.data as Note[]) || [];
   },
+  addRealtimeNote: (note) => {
+    set((state) => ({
+      realtimeNotes: [note, ...state.realtimeNotes].slice(0, 10),
+      notes: state.notes.some((n) => n.id === note.id) ? state.notes : [note, ...state.notes].slice(0, state.pageSize),
+    }));
+  },
+  updateRealtimeNote: (note) => {
+    set((state) => ({
+      notes: state.notes.map((n) => (n.id === note.id ? note : n)),
+      realtimeNotes: state.realtimeNotes.map((n) => (n.id === note.id ? note : n)),
+    }));
+  },
+  removeRealtimeNote: (noteId) => {
+    set((state) => ({
+      notes: state.notes.filter((n) => n.id !== noteId),
+      realtimeNotes: state.realtimeNotes.filter((n) => n.id !== noteId),
+    }));
+  },
+  clearRealtimeNotes: () => set({ realtimeNotes: [] }),
 }));
