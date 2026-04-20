@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { useNoteStore } from "../stores";
-import wsService from "../services/websocket";
+import { useNoteStore } from "../../stores";
+import wsService from "../../services/websocket";
 
 export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const { addRealtimeNote, updateRealtimeNote, removeRealtimeNote } = useNoteStore();
