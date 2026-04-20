@@ -15,68 +15,80 @@ export default function Sidebar() {
   };
 
   return (
-    <div className="w-[72px] bg-[var(--bg-secondary)] flex flex-col items-center py-3 gap-2 shrink-0">
-      {servers.map((server) => (
+    <div className="w-[72px] bg-[var(--bg-deep)] flex flex-col items-center pt-3 pb-2 gap-2 shrink-0">
+      {servers.map((server) => {
+        const isActive = currentServerId === server.id;
+        return (
+          <div key={server.id} className="group relative flex items-center">
+            <div
+              className={`absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200 ${
+                isActive ? "h-10" : "h-0 group-hover:h-5"
+              }`}
+            />
+            <div
+              className={`w-12 h-12 flex items-center justify-center cursor-pointer text-white font-bold transition-all duration-200 ${
+                isActive
+                  ? "rounded-xl bg-[var(--accent)]"
+                  : "rounded-3xl bg-[var(--bg-accent)] hover:rounded-xl hover:bg-[var(--accent)]"
+              }`}
+              onClick={() => setCurrentServer(server.id)}
+              onContextMenu={(e) => handleContextMenu(e, server.id)}
+              title={server.name}
+            >
+              {server.name.charAt(0).toUpperCase()}
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="group relative flex items-center">
+        <div className="absolute left-0 w-1 rounded-r-full bg-white h-0 group-hover:h-5 transition-all duration-200" />
         <div
-          key={server.id}
-          className={`w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 flex items-center justify-center cursor-pointer text-white font-bold text-lg ${
-            currentServerId === server.id
-              ? "rounded-[16px] bg-[var(--text-accent)]"
-              : "bg-[var(--bg-tertiary)] hover:bg-[var(--bg-accent)]"
-          }`}
-          onClick={() => setCurrentServer(server.id)}
-          onContextMenu={(e) => handleContextMenu(e, server.id)}
-          title={server.name}
+          className="w-12 h-12 rounded-3xl bg-[var(--bg-accent)] hover:rounded-xl hover:bg-[var(--success)] flex items-center justify-center text-[var(--success)] hover:text-white text-2xl transition-all duration-200 cursor-pointer"
+          onClick={() => setShowModal(true)}
+          title="Add Server"
         >
-          {server.name.charAt(0).toUpperCase()}
+          +
         </div>
-      ))}
+      </div>
 
-      <button
-        className="w-12 h-12 rounded-[24px] hover:rounded-[16px] transition-all duration-200 bg-[var(--bg-tertiary)] hover:bg-[var(--success)] flex items-center justify-center text-[var(--success)] hover:text-white text-2xl"
-        onClick={() => setShowModal(true)}
-        title="Add Server"
-      >
-        +
-      </button>
-
-      <div className="mt-auto mb-2">
+      <div className="mt-auto flex flex-col items-center gap-1">
         <div
-          className="w-12 h-12 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center cursor-pointer text-sm text-[var(--text-secondary)] hover:bg-[var(--danger)] hover:text-white transition-colors"
+          className="w-12 h-12 rounded-full bg-[var(--bg-accent)] flex items-center justify-center cursor-pointer text-sm text-[var(--text-secondary)] hover:bg-[var(--danger)] hover:text-white transition-colors relative"
           onClick={logout}
           title={user?.username || "Logout"}
         >
           {user?.display_name?.charAt(0) || user?.username?.charAt(0) || "?"}
+          <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[var(--bg-deep)] flex items-center justify-center">
+            <div className="w-2.5 h-2.5 rounded-full bg-[var(--success)]" />
+          </div>
         </div>
       </div>
 
       {contextMenu && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={() => setContextMenu(null)}
-        >
+        <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)}>
           <div
-            className="absolute bg-[var(--bg-tertiary)] rounded shadow-xl py-1 min-w-[120px] border border-[var(--border-color)]"
+            className="absolute bg-[var(--bg-tertiary)] rounded-md shadow-xl py-1.5 min-w-[140px] border border-[var(--border-color)]"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
             <button
-              className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--hover-bg)]"
+              className="w-full px-3 py-1.5 text-left text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] flex items-center gap-2"
               onClick={() => {
                 const s = servers.find((s) => s.id === contextMenu.id);
                 if (s) setEditingServer({ id: s.id, name: s.name, description: s.description || undefined });
                 setContextMenu(null);
               }}
             >
-              Edit
+              Edit Server
             </button>
             <button
-              className="w-full px-3 py-1.5 text-left text-sm text-[var(--danger)] hover:bg-[var(--hover-bg)]"
+              className="w-full px-3 py-1.5 text-left text-[13px] text-[var(--danger)] hover:bg-[var(--bg-hover)] flex items-center gap-2"
               onClick={() => {
                 deleteServer(contextMenu.id);
                 setContextMenu(null);
               }}
             >
-              Delete
+              Delete Server
             </button>
           </div>
         </div>

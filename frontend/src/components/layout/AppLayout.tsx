@@ -12,7 +12,7 @@ export default function AppLayout() {
   }, [fetchServers]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
+    <div className="flex h-screen w-screen overflow-hidden select-none">
       <Sidebar />
       <ChannelList />
       <main className="flex-1 flex flex-col bg-[var(--bg-primary)] overflow-hidden">
