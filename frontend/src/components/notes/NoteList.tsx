@@ -8,6 +8,9 @@ import ReactMarkdown from "react-markdown";
 import { useNoteStore, useChannelStore, useAuthStore } from "../../stores";
 import NoteEditor from "./NoteEditor";
 
+/** 同一段消息的最大时间间隔：3 分钟（毫秒） */
+const GROUP_TIME_WINDOW = 3 * 60 * 1000;
+
 export default function NoteList() {
   const { channelId } = useParams<{ channelId: string }>();
   const { notes, totalNotes, pageSize, fetchNotes } = useNoteStore();
@@ -19,7 +22,7 @@ export default function NoteList() {
   const [showPanel, setShowPanel] = useState<"none" | "notifications" | "pins">("none");
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
-  const prevNotesLength = useRef(notes.length);
+  const prevNewestNoteId = useRef<number | null>(null);
 
   useEffect(() => {
     if (channelId) {
@@ -28,15 +31,20 @@ export default function NoteList() {
     }
   }, [channelId, page, fetchNotes, setCurrentChannel]);
 
-  // Smart scroll: only auto-scroll on initial load or when new notes are added (not on page change)
+  // Auto-scroll: scroll to bottom on initial load or when a new note arrives
   useEffect(() => {
     if (scrollRef.current) {
-      const isNewNote = notes.length > prevNotesLength.current;
-      const isInitialLoad = prevNotesLength.current === 0 && notes.length > 0;
-      if (isInitialLoad || (isNewNote && !userScrolled.current)) {
+      const newestNote = notes[0] || null;
+      const isInitialLoad = prevNewestNoteId.current === null && notes.length > 0;
+      const hasNewNote = newestNote !== null && newestNote.id !== prevNewestNoteId.current;
+
+      if (isInitialLoad || (hasNewNote && !userScrolled.current)) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
-      prevNotesLength.current = notes.length;
+
+      if (newestNote) {
+        prevNewestNoteId.current = newestNote.id;
+      }
     }
   }, [notes]);
 
@@ -54,6 +62,9 @@ export default function NoteList() {
   const filteredNotes = notes.filter((n) =>
     searchTerm === "" || n.content.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Reverse notes so oldest is at top, newest at bottom
+  const sortedNotes = [...filteredNotes].reverse();
 
   if (!channelId || !channel) {
     return (
@@ -119,16 +130,18 @@ export default function NoteList() {
             <span className="relative px-2 bg-[#313338] text-[12px] font-bold text-[#949ba4]">Today</span>
           </div>
 
-          {filteredNotes.length === 0 && searchTerm && (
+          {sortedNotes.length === 0 && searchTerm && (
             <div className="text-center py-20">
               <p className="text-[#949ba4]">No results for &ldquo;{searchTerm}&rdquo; in this channel.</p>
             </div>
           )}
 
-          {filteredNotes.map((note, idx) => {
-            const prevNote = idx > 0 ? filteredNotes[idx - 1] : null;
-            const isSameSender = prevNote && prevNote.user_id === note.user_id &&
-              (new Date(note.created_at).getTime() - new Date(prevNote.created_at).getTime() < 300000);
+          {sortedNotes.map((note, idx) => {
+            const prevNote = idx > 0 ? sortedNotes[idx - 1] : null;
+            const timeDiff = prevNote
+              ? new Date(note.created_at).getTime() - new Date(prevNote.created_at).getTime()
+              : Infinity;
+            const isSameSender = prevNote && prevNote.user_id === note.user_id && timeDiff <= GROUP_TIME_WINDOW;
 
             return (
               <NoteRow
