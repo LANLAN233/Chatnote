@@ -13,11 +13,10 @@ const GROUP_TIME_WINDOW = 3 * 60 * 1000;
 
 export default function NoteList() {
   const { channelId } = useParams<{ channelId: string }>();
-  const { notes, totalNotes, pageSize, fetchNotes } = useNoteStore();
+  const { notes, fetchNotes } = useNoteStore();
   const { channels, setCurrentChannel } = useChannelStore();
   const { user } = useAuthStore();
   const channel = channels.find((c) => c.id === Number(channelId));
-  const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [showPanel, setShowPanel] = useState<"none" | "notifications" | "pins">("none");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -27,9 +26,9 @@ export default function NoteList() {
   useEffect(() => {
     if (channelId) {
       setCurrentChannel(Number(channelId));
-      fetchNotes(Number(channelId), page);
+      fetchNotes(Number(channelId));
     }
-  }, [channelId, page, fetchNotes, setCurrentChannel]);
+  }, [channelId, fetchNotes, setCurrentChannel]);
 
   // Auto-scroll: scroll to bottom on initial load or when a new note arrives
   useEffect(() => {
@@ -56,8 +55,6 @@ export default function NoteList() {
       userScrolled.current = !isNearBottom;
     }
   }, []);
-
-  const totalPages = Math.ceil(totalNotes / pageSize);
 
   const filteredNotes = notes.filter((n) =>
     searchTerm === "" || n.content.toLowerCase().includes(searchTerm.toLowerCase())
@@ -154,28 +151,6 @@ export default function NoteList() {
             );
           })}
         </main>
-
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-3 py-2 border-t border-[#1e1f22] shrink-0 text-[13px]">
-            <button
-              className="p-1 text-[#949ba4] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded hover:bg-[#35373c]"
-              disabled={page <= 1}
-              onClick={() => setPage(page - 1)}
-            >
-              ←
-            </button>
-            <span className="text-[#949ba4] text-xs">
-              {page} / {totalPages}
-            </span>
-            <button
-              className="p-1 text-[#949ba4] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded hover:bg-[#35373c]"
-              disabled={page >= totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              →
-            </button>
-          </div>
-        )}
 
         <NoteEditor channelId={Number(channelId)} />
       </div>

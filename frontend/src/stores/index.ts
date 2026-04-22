@@ -162,13 +162,10 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
 interface NoteState {
   notes: Note[];
-  totalNotes: number;
-  currentPage: number;
-  pageSize: number;
   currentNote: Note | null;
   isLoading: boolean;
   realtimeNotes: Note[];
-  fetchNotes: (channelId: number, page?: number, search?: string) => Promise<void>;
+  fetchNotes: (channelId: number, search?: string) => Promise<void>;
   createNote: (data: { channel_id: number; content: string; content_type?: string }) => Promise<void>;
   updateNote: (id: number, data: { content?: string }) => Promise<void>;
   deleteNote: (id: number) => Promise<void>;
@@ -181,35 +178,29 @@ interface NoteState {
 
 export const useNoteStore = create<NoteState>((set, get) => ({
   notes: [],
-  totalNotes: 0,
-  currentPage: 1,
-  pageSize: 20,
   currentNote: null,
   isLoading: false,
   realtimeNotes: [],
-  fetchNotes: async (channelId, page = 1, search) => {
+  fetchNotes: async (channelId, search) => {
     set({ isLoading: true });
-    const { data } = await noteApi.list(channelId, page, get().pageSize, search);
+    const { data } = await noteApi.list(channelId, search);
     const noteList = data.data as NoteList;
     set({
       notes: noteList?.items || [],
-      totalNotes: noteList?.total || 0,
-      currentPage: noteList?.page || page,
       isLoading: false,
     });
   },
   createNote: async (data) => {
     await noteApi.create(data);
-    const state = get();
     const channelId = data.channel_id;
-    await get().fetchNotes(channelId, 1);
+    await get().fetchNotes(channelId);
   },
   updateNote: async (id, data) => {
     await noteApi.update(id, data);
     const state = get();
     if (state.notes.length > 0) {
       const channelId = state.notes[0].channel_id;
-      await get().fetchNotes(channelId, state.currentPage);
+      await get().fetchNotes(channelId);
     }
   },
   deleteNote: async (id) => {
@@ -217,7 +208,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
     const channelId = state.notes[0]?.channel_id;
     await noteApi.delete(id);
     if (channelId) {
-      await get().fetchNotes(channelId, state.currentPage);
+      await get().fetchNotes(channelId);
     }
   },
   searchNotes: async (query) => {
@@ -227,7 +218,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   addRealtimeNote: (note) => {
     set((state) => ({
       realtimeNotes: [note, ...state.realtimeNotes].slice(0, 10),
-      notes: state.notes.some((n) => n.id === note.id) ? state.notes : [note, ...state.notes].slice(0, state.pageSize),
+      notes: state.notes.some((n) => n.id === note.id) ? state.notes : [note, ...state.notes],
     }));
   },
   updateRealtimeNote: (note) => {

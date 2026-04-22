@@ -47,10 +47,8 @@ export const channelApi = {
 };
 
 export const noteApi = {
-  list: (channelId: number, page?: number, pageSize?: number, search?: string) => {
+  list: (channelId: number, search?: string) => {
     const params: Record<string, unknown> = {};
-    if (page) params.page = page;
-    if (pageSize) params.page_size = pageSize;
     if (search) params.search = search;
     return api.get<ApiResponse<NoteList>>(`/channels/${channelId}/notes`, { params });
   },

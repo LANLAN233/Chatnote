@@ -14,27 +14,16 @@ router = APIRouter(tags=["notes"])
 @router.get("/api/channels/{channel_id}/notes", response_model=ApiResponse)
 async def list_notes(
     channel_id: int,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
     search: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Note).where(Note.channel_id == channel_id, Note.user_id == current_user.id)
-    count_query = select(func.count()).select_from(Note).where(
-        Note.channel_id == channel_id, Note.user_id == current_user.id
-    )
 
     if search:
-        search_filter = Note.content.ilike(f"%{search}%")
-        query = query.where(search_filter)
-        count_query = count_query.where(search_filter)
+        query = query.where(Note.content.ilike(f"%{search}%"))
 
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
-
-    offset = (page - 1) * page_size
-    query = query.order_by(Note.created_at.desc()).offset(offset).limit(page_size)
+    query = query.order_by(Note.created_at.desc())
     result = await db.execute(query)
     notes = result.scalars().all()
 
@@ -42,9 +31,9 @@ async def list_notes(
         success=True,
         data=NoteListResponse(
             items=[NoteResponse.model_validate(n) for n in notes],
-            total=total,
-            page=page,
-            page_size=page_size,
+            total=len(notes),
+            page=1,
+            page_size=len(notes),
         ).model_dump(),
     )
 

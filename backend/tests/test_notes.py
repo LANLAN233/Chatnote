@@ -100,7 +100,7 @@ async def test_search_notes(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_note_pagination(client, auth_headers):
+async def test_list_all_notes_no_pagination(client, auth_headers):
     server_resp = await client.post("/api/servers", json={"name": "Srv"}, headers=auth_headers)
     server_id = server_resp.json()["data"]["id"]
     ch_resp = await client.post(
@@ -114,11 +114,9 @@ async def test_note_pagination(client, auth_headers):
             headers=auth_headers,
         )
     response = await client.get(
-        f"/api/channels/{channel_id}/notes?page=1&page_size=2",
+        f"/api/channels/{channel_id}/notes",
         headers=auth_headers,
     )
     data = response.json()
     assert data["data"]["total"] == 5
-    assert data["data"]["page"] == 1
-    assert data["data"]["page_size"] == 2
-    assert len(data["data"]["items"]) == 2
+    assert len(data["data"]["items"]) == 5
