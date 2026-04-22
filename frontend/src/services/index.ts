@@ -82,4 +82,6 @@ export const statsApi = {
 
 export { attachmentApi, type Attachment } from "./attachmentApi";
 export { exportApi } from "./exportApi";
+export { settingsApi } from "./settingsApi";
+export { scheduleApi } from "./scheduleApi";
 export { default as wsService } from "./websocket";

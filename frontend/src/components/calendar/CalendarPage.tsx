@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Calendar as CalendarIcon } from "lucide-react";
 import WeekView from "./WeekView";
 import MonthView from "./MonthView";
 import ScheduleModal from "./ScheduleModal";
@@ -23,12 +24,12 @@ export default function CalendarPage() {
   }, [currentDate, viewMode]);
 
   const loadServers = async () => {
+    if (!localStorage.getItem("token")) return;
     try {
       const response = await serverApi.list();
       const serversData = response.data.data || [];
       setServers(serversData);
 
-      // 加载所有频道
       const allChannels: Channel[] = [];
       for (const server of serversData) {
         const channelResponse = await channelApi.list(server.id);
@@ -37,11 +38,14 @@ export default function CalendarPage() {
       }
       setChannels(allChannels);
     } catch (err) {
-      console.error("Failed to load servers:", err);
+      if (localStorage.getItem("token")) {
+        console.error("Failed to load servers:", err);
+      }
     }
   };
 
   const loadSchedules = async () => {
+    if (!localStorage.getItem("token")) return;
     try {
       let startDate: string;
       let endDate: string;
@@ -60,7 +64,9 @@ export default function CalendarPage() {
       const data = await scheduleApi.getSchedules({ start_date: startDate, end_date: endDate });
       setSchedules(data);
     } catch (err) {
-      console.error("Failed to load schedules:", err);
+      if (localStorage.getItem("token")) {
+        console.error("Failed to load schedules:", err);
+      }
     }
   };
 
@@ -87,11 +93,16 @@ export default function CalendarPage() {
   };
 
   return (
-    <div className="flex h-full">
-      {/* 主日历区域 */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* 视图切换 */}
-        <div className="flex items-center justify-between px-4 py-2 bg-[#2b2d31] border-b border-[#1e1f22]">
+    <div className="flex-1 bg-[#313338] flex flex-col h-full overflow-hidden">
+      <header className="h-12 border-b border-[#1e1f22] px-4 flex items-center shadow-sm bg-[#313338] flex-shrink-0">
+        <h2 className="font-bold text-white flex items-center gap-2 text-[15px]">
+          <CalendarIcon size={20} className="text-[#23a559]" /> Study Schedule
+        </h2>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-6">
+        {/* View toggle */}
+        <div className="flex items-center justify-between mb-4">
           <div className="flex bg-[#1e1f22] rounded p-1">
             <button
               onClick={() => setViewMode("week")}
@@ -130,7 +141,7 @@ export default function CalendarPage() {
           </button>
         </div>
 
-        {/* 日历视图 */}
+        {/* Calendar view */}
         {viewMode === "week" ? (
           <WeekView
             currentDate={currentDate}
@@ -147,24 +158,8 @@ export default function CalendarPage() {
             onScheduleClick={handleScheduleClick}
           />
         )}
-      </div>
+      </main>
 
-      {/* 右侧边栏 */}
-      <div className="w-72 border-l border-[#1e1f22] bg-[#2b2d31] p-4 overflow-y-auto">
-        <TodaySchedule servers={servers} channels={channels} />
-
-        {/* 即将到来 */}
-        <div className="mt-4 bg-[#2b2d31] rounded-lg overflow-hidden">
-          <div className="px-4 py-3 border-b border-[#1e1f22]">
-            <h3 className="text-sm font-semibold text-white">即将到来</h3>
-          </div>
-          <div className="p-3">
-            <UpcomingSchedules servers={servers} channels={channels} />
-          </div>
-        </div>
-      </div>
-
-      {/* 日程弹窗 */}
       <ScheduleModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -174,64 +169,6 @@ export default function CalendarPage() {
         channels={channels}
         onSuccess={loadSchedules}
       />
-    </div>
-  );
-}
-
-// 即将到来日程组件
-function UpcomingSchedules({ servers, channels }: { servers: Server[]; channels: Channel[] }) {
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
-
-  useEffect(() => {
-    loadUpcoming();
-  }, []);
-
-  const loadUpcoming = async () => {
-    try {
-      const data = await scheduleApi.getUpcomingSchedules(7);
-      setSchedules(data.slice(0, 5)); // 只显示前5个
-    } catch (err) {
-      console.error("Failed to load upcoming schedules:", err);
-    }
-  };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "";
-    const date = new Date(dateStr);
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    if (date.toDateString() === today.toDateString()) return "今天";
-    if (date.toDateString() === tomorrow.toDateString()) return "明天";
-    return `${date.getMonth() + 1}/${date.getDate()}`;
-  };
-
-  if (schedules.length === 0) {
-    return <div className="text-sm text-[#949ba4]">暂无即将开始的日程</div>;
-  }
-
-  return (
-    <div className="space-y-2">
-      {schedules.map((schedule) => {
-        const serverName = servers.find((s) => s.id === schedule.server_id)?.name;
-
-        return (
-          <div key={schedule.id} className="text-sm">
-            <div className="flex items-center gap-2">
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: schedule.color }}
-              />
-              <span className="text-white truncate flex-1">{schedule.title}</span>
-            </div>
-            <div className="text-xs text-[#949ba4] ml-4 mt-0.5">
-              {formatDate(schedule.date)} {schedule.start_time.substring(0, 5)}
-              {serverName && <span className="ml-1 text-[#5865f2]">@{serverName}</span>}
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }

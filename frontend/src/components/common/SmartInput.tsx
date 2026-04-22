@@ -134,15 +134,15 @@ export default function SmartInput({ onSubmit, placeholder }: SmartInputProps) {
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         placeholder={placeholder || "Type @Server #Channel or just a note..."}
-        className="w-full px-4 py-3 bg-[var(--bg-deep)] text-white rounded-lg border border-[var(--bg-active)] focus:border-[var(--accent)] transition-colors resize-none h-20 text-[14px] placeholder:text-[var(--text-muted)]"
+        className="w-full px-4 py-3 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] focus:border-[#5865f2] transition-colors resize-none h-20 text-[14px] placeholder:text-[#949ba4] outline-none"
       />
 
       {showSuggestions && suggestions.length > 0 && (
         <div
           ref={suggestionsRef}
-          className="absolute bottom-full mb-1 left-0 w-64 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg shadow-xl overflow-hidden z-50"
+          className="absolute bottom-full mb-1 left-0 w-64 bg-[#2b2d31] border border-[#1e1f22] rounded-lg shadow-xl overflow-hidden z-50"
         >
-          <div className="px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase border-b border-[var(--border-color)]">
+          <div className="px-3 py-1.5 text-[11px] font-semibold text-[#949ba4] uppercase border-b border-[#1e1f22]">
             {suggestionType === "server" ? "Servers" : "Channels"}
           </div>
           {suggestions.slice(0, 8).map((item, idx) => (
@@ -150,8 +150,8 @@ export default function SmartInput({ onSubmit, placeholder }: SmartInputProps) {
               key={item.id}
               className={`w-full px-3 py-2 text-left text-[13px] flex items-center gap-2 transition-colors ${
                 idx === selectedIdx
-                  ? "bg-[var(--bg-active)] text-white"
-                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                  ? "bg-[#3f4147] text-white"
+                  : "text-[#dbdee1] hover:bg-[#35373c]"
               }`}
               onClick={() => applySuggestion(item.name)}
               onMouseEnter={() => setSelectedIdx(idx)}

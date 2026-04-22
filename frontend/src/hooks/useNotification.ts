@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from "react";
 import { scheduleApi } from "../services/scheduleApi";
 
-export function useNotification() {
+export function useNotification(enabled: boolean = true) {
   const requestPermission = useCallback(async () => {
     if (!("Notification" in window)) {
       console.log("This browser does not support notifications");
@@ -34,6 +34,9 @@ export function useNotification() {
 
   // 检查并显示日程提醒
   const checkScheduleReminders = useCallback(async () => {
+    // 无认证时不发送请求，避免 401 死循环
+    if (!localStorage.getItem("token")) return;
+
     try {
       const schedules = await scheduleApi.getTodaySchedules();
       const now = new Date();
@@ -56,11 +59,16 @@ export function useNotification() {
         }
       });
     } catch (err) {
-      console.error("Failed to check schedule reminders:", err);
+      // 静默处理，避免未登录时控制台刷报错
+      if (localStorage.getItem("token")) {
+        console.error("Failed to check schedule reminders:", err);
+      }
     }
   }, [showNotification]);
 
   useEffect(() => {
+    if (!enabled) return;
+
     // 请求通知权限
     requestPermission();
 
@@ -71,7 +79,7 @@ export function useNotification() {
     checkScheduleReminders();
 
     return () => clearInterval(interval);
-  }, [checkScheduleReminders, requestPermission]);
+  }, [checkScheduleReminders, requestPermission, enabled]);
 
   return { requestPermission, showNotification, checkScheduleReminders };
 }

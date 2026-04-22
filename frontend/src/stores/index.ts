@@ -1,30 +1,42 @@
 import { create } from "zustand";
-import { authApi, serverApi, channelApi, noteApi } from "../services";
+import { authApi, serverApi, channelApi, noteApi, settingsApi } from "../services";
 import wsService from "../services/websocket";
-import type { Channel, Note, NoteList, Server, User } from "../types";
+import type { Channel, Note, NoteList, Server, User, UserSettingsUpdate } from "../types";
 
 interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  theme: string;
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string, displayName?: string) => Promise<void>;
   logout: () => void;
   fetchMe: () => Promise<void>;
+  updateSettings: (data: UserSettingsUpdate) => Promise<void>;
+  setTheme: (theme: string) => void;
 }
+
+const getInitialTheme = () => "dark";
+
+const applyTheme = (theme: string) => {
+  localStorage.setItem("theme", theme);
+};
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   token: localStorage.getItem("token"),
   isAuthenticated: !!localStorage.getItem("token"),
   isLoading: false,
+  theme: getInitialTheme(),
   login: async (username, password) => {
     const { data } = await authApi.login({ username, password });
     const responseData = data.data;
     if (responseData) {
       localStorage.setItem("token", responseData.token.access_token);
-      set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true });
+      const userTheme = responseData.user.theme || "dark";
+      applyTheme(userTheme);
+      set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true, theme: userTheme });
       wsService.connect();
     }
   },
@@ -33,7 +45,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     const responseData = data.data;
     if (responseData) {
       localStorage.setItem("token", responseData.token.access_token);
-      set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true });
+      const userTheme = responseData.user.theme || "dark";
+      applyTheme(userTheme);
+      set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true, theme: userTheme });
       wsService.connect();
     }
   },
@@ -46,13 +60,27 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { data } = await authApi.me();
       if (data.data) {
-        set({ user: data.data, isAuthenticated: true });
+        const userTheme = data.data.theme || "dark";
+        applyTheme(userTheme);
+        set({ user: data.data, isAuthenticated: true, theme: userTheme });
         wsService.connect();
       }
     } catch {
       set({ user: null, token: null, isAuthenticated: false });
       localStorage.removeItem("token");
     }
+  },
+  updateSettings: async (settingsData) => {
+    const { data } = await settingsApi.update(settingsData);
+    if (data.data) {
+      const newTheme = data.data.theme;
+      if (newTheme) applyTheme(newTheme);
+      set({ user: data.data, theme: newTheme || getInitialTheme() });
+    }
+  },
+  setTheme: (theme) => {
+    applyTheme(theme);
+    set({ theme });
   },
 }));
 

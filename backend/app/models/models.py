@@ -17,6 +17,8 @@ class User(Base):
     status: Mapped[str] = mapped_column(String, default="online")
     api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     preferred_llm: Mapped[str] = mapped_column(String, default="zhipu")
+    theme: Mapped[str] = mapped_column(String, default="dark")
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

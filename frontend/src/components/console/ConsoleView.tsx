@@ -96,33 +96,39 @@ export default function ConsoleView() {
   };
 
   return (
-    <div className="flex-1 bg-[var(--bg-deep)] flex flex-col h-full overflow-hidden font-mono">
-      <header className="h-12 bg-[var(--bg-primary)] border-b border-[var(--border-color)] px-4 flex items-center justify-between shadow-sm shrink-0">
+    <div className="flex-1 bg-[#1e1f22] flex flex-col h-full overflow-hidden font-mono">
+      <header className="h-12 bg-[#313338] border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Terminal className="w-[18px] h-[18px] text-[#5865f2]" />
+          <Terminal size={18} className="text-[#5865F2]" />
           <h2 className="font-bold text-white text-[14px] uppercase tracking-wider">
             CHATNOTE_TERMINAL_V1.0
           </h2>
         </div>
         <div className="flex items-center gap-3">
-          <button className="text-[var(--text-muted)] hover:text-white transition-colors" title="Restart Services">
-            <RefreshCw className="w-4 h-4" />
+          <button className="text-[#949ba4] hover:text-white transition-colors" title="Restart Services">
+            <RefreshCw size={16} />
           </button>
           <button
-            className="text-[var(--text-muted)] hover:text-white transition-colors"
+            className="text-[#949ba4] hover:text-white transition-colors"
             title="Clear Logs"
             onClick={() => setLogs([])}
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 size={16} />
           </button>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 space-y-1 text-[13px] selection:bg-[#5865f2]/30 scrollbar-hide">
-        {logs.map((log) => (
+      <main className="flex-1 overflow-y-auto p-4 space-y-1 text-[13px] selection:bg-[#5865F2]/30 scrollbar-hide">
+        <div className="text-gray-500 mb-4 border-b border-[#2b2d31] pb-2">
+          [SYSTEM] ChatNote Context initialized.<br />
+          [SYSTEM] AI Sub-engine connected.<br />
+          [SYSTEM] Capturing local knowledge for #general.
+        </div>
+
+        {logs.slice(3).map((log) => (
           <div key={log.id} className="flex gap-2 group">
             {log.type === "input" ? (
-              <span className="text-[var(--success)] shrink-0 font-bold">&gt;</span>
+              <span className="text-[#23a559] shrink-0 font-bold">&gt;</span>
             ) : (
               <span className="text-gray-600 shrink-0">
                 [{log.timestamp.toLocaleTimeString([], { hour12: false })}]
@@ -133,24 +139,24 @@ export default function ConsoleView() {
         ))}
         {isLoading && (
           <div className="flex gap-4 px-4 animate-pulse mt-4">
-            <div className="w-10 h-10 rounded-full bg-[var(--success)] opacity-20 shrink-0" />
+            <div className="w-10 h-10 rounded-full bg-[#23a559] opacity-20 shrink-0" />
             <div className="flex-1 py-1 space-y-2">
-              <div className="h-4 bg-[var(--border-light)] rounded w-1/4" />
-              <div className="h-4 bg-[var(--border-light)] rounded w-1/2" />
+              <div className="h-4 bg-[#3f4147] rounded w-1/4" />
+              <div className="h-4 bg-[#3f4147] rounded w-1/2" />
             </div>
           </div>
         )}
         <div ref={logEndRef} />
       </main>
 
-      <footer className="p-6 bg-[var(--bg-secondary)] border-t border-[var(--border-color)]">
+      <footer className="p-6 bg-[#2b2d31] border-t border-[#1e1f22]">
         <div className="max-w-4xl mx-auto space-y-4">
-          <div className="flex items-center gap-2 text-[var(--text-muted)] text-xs font-bold uppercase tracking-widest px-1">
-            <Zap className="w-3.5 h-3.5 text-[#5865f2]" />
+          <div className="flex items-center gap-2 text-[#949ba4] text-xs font-bold uppercase tracking-widest px-1">
+            <Zap size={14} className="text-[#5865f2]" />
             <span>Smart Capture</span>
           </div>
 
-          <div className="relative group bg-[var(--bg-deep)] rounded-xl border border-[var(--border-light)] focus-within:border-[#5865f2] transition-all shadow-lg">
+          <div className="relative group bg-[#1e1f22] rounded-xl border border-[#3f4147] focus-within:border-[#5865f2] transition-all shadow-lg">
             <textarea
               ref={inputRef}
               value={input}
@@ -161,14 +167,14 @@ export default function ConsoleView() {
             />
             <div className="absolute bottom-3 right-3 flex items-center gap-3">
               <div className="flex items-center gap-2 text-[10px] text-gray-500 mr-2">
-                <Code className="w-3 h-3" />
+                <Code size={12} />
                 <span>Shift + Enter for multi-line</span>
               </div>
               <button
                 onClick={handleSubmit}
-                className={`p-2.5 rounded-lg transition-all ${input.trim() ? "bg-[#5865f2] text-white hover:scale-105" : "bg-[var(--bg-accent)] text-gray-500 cursor-not-allowed"}`}
+                className={`p-2.5 rounded-lg transition-all ${input.trim() ? "bg-[#5865f2] text-white hover:scale-105" : "bg-[#4f545c] text-gray-500 cursor-not-allowed"}`}
               >
-                <SendHorizontal className="w-5 h-5" />
+                <SendHorizontal size={20} />
               </button>
             </div>
           </div>

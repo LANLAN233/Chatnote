@@ -9,7 +9,9 @@ from app.config import settings
 from app.database import init_db
 from app.logging_config import setup_logging
 from app.plugins import plugin_manager
-from app.routers import ai, attachments, auth, channels, console, export, notes, plugins, schedules, servers, websocket as ws_router
+from app.routers import ai, attachments, auth, channels, console, export, notes, plugins, schedules, servers
+from app.routers.settings import router as settings_router
+from app.routers import websocket as ws_router
 
 
 @asynccontextmanager
@@ -45,6 +47,7 @@ app.include_router(console.router)
 app.include_router(plugins.router)
 app.include_router(attachments.router)
 app.include_router(export.router)
+app.include_router(settings_router)
 app.include_router(ws_router.router)
 
 # Mount static files for uploads

@@ -29,11 +29,17 @@ export default function TodaySchedule({ servers, channels }: TodayScheduleProps)
   }, []);
 
   const loadTodaySchedules = async () => {
+    if (!localStorage.getItem("token")) {
+      setLoading(false);
+      return;
+    }
     try {
       const data = await scheduleApi.getTodaySchedules();
       setSchedules(data);
     } catch (err) {
-      console.error("Failed to load today's schedules:", err);
+      if (localStorage.getItem("token")) {
+        console.error("Failed to load today's schedules:", err);
+      }
     } finally {
       setLoading(false);
     }

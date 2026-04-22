@@ -24,10 +24,20 @@ class UserResponse(BaseModel):
     avatar: str | None
     status: str
     preferred_llm: str
+    theme: str
+    notifications_enabled: bool
     created_at: datetime.datetime
     updated_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
+
+class UserSettingsUpdate(BaseModel):
+    display_name: str | None = None
+    preferred_llm: str | None = None
+    api_key: str | None = None
+    theme: str | None = None
+    notifications_enabled: bool | None = None
 
 
 class TokenResponse(BaseModel):

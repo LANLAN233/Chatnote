@@ -55,10 +55,10 @@ export default function ClassifyModal({ content, onConfirm, onClose }: ClassifyM
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-[var(--bg-primary)] w-full max-w-md rounded-xl shadow-2xl border border-[var(--border-color)] overflow-hidden animate-zoom-in"
+        className="bg-[#313338] w-full max-w-md rounded-xl shadow-2xl border border-[#1e1f22] overflow-hidden animate-zoom-in"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-4 border-b border-[var(--border-color)] flex justify-between items-center">
+        <div className="p-4 border-b border-[#1e1f22] flex justify-between items-center">
           <h3 className="font-bold text-white flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-[#5865f2]" /> AI Classification
           </h3>
@@ -70,44 +70,44 @@ export default function ClassifyModal({ content, onConfirm, onClose }: ClassifyM
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <RefreshCw className="w-6 h-6 text-[#5865f2] animate-spin" />
-            <span className="ml-3 text-[var(--text-muted)]">Analyzing...</span>
+            <span className="ml-3 text-[#949ba4]">Analyzing...</span>
           </div>
         ) : result ? (
           <div className="p-4 space-y-4">
-            <div className="bg-[var(--bg-deep)] p-3 rounded-lg border border-[var(--border-color)]">
-              <div className="text-[11px] font-bold text-[var(--text-muted)] uppercase mb-1">Your Note</div>
-              <div className="text-[13px] text-[var(--text-primary)] line-clamp-3">{content}</div>
+            <div className="bg-[#1e1f22] p-3 rounded-lg border border-[#1e1f22]">
+              <div className="text-[11px] font-bold text-[#949ba4] uppercase mb-1">Your Note</div>
+              <div className="text-[13px] text-[#dbdee1] line-clamp-3">{content}</div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1.5">Server</label>
+              <label className="block text-[11px] font-bold text-[#949ba4] uppercase mb-1.5">Server</label>
               <input
                 type="text"
                 value={editServer}
                 onChange={(e) => setEditServer(e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--bg-deep)] text-white rounded-lg border border-[var(--border-color)] focus:border-[#5865f2] text-[14px] outline-none transition-colors"
+                className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#1e1f22] focus:border-[#5865f2] text-[14px] outline-none transition-colors"
               />
               {result.is_new_server && (
-                <span className="text-[11px] text-[var(--warning)] mt-1 block">New server will be created</span>
+                <span className="text-[11px] text-[#f23f43] mt-1 block">New server will be created</span>
               )}
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1.5">Channel</label>
+              <label className="block text-[11px] font-bold text-[#949ba4] uppercase mb-1.5">Channel</label>
               <input
                 type="text"
                 value={editChannel}
                 onChange={(e) => setEditChannel(e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--bg-deep)] text-white rounded-lg border border-[var(--border-color)] focus:border-[#5865f2] text-[14px] outline-none transition-colors"
+                className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#1e1f22] focus:border-[#5865f2] text-[14px] outline-none transition-colors"
               />
               {result.is_new_channel && (
-                <span className="text-[11px] text-[var(--warning)] mt-1 block">New channel will be created</span>
+                <span className="text-[11px] text-[#f23f43] mt-1 block">New channel will be created</span>
               )}
             </div>
 
             {result.tags.length > 0 && (
               <div>
-                <div className="text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1.5">Tags</div>
+                <div className="text-[11px] font-bold text-[#949ba4] uppercase mb-1.5">Tags</div>
                 <div className="flex flex-wrap gap-1.5">
                   {result.tags.map((tag, i) => (
                     <span key={i} className="bg-[#5865f2]/20 text-[#5865f2] text-[11px] px-2 py-0.5 rounded">{tag}</span>
@@ -118,22 +118,22 @@ export default function ClassifyModal({ content, onConfirm, onClose }: ClassifyM
 
             {result.summary && (
               <div>
-                <div className="text-[11px] font-bold text-[var(--text-secondary)] uppercase mb-1">Summary</div>
-                <div className="text-[13px] text-[var(--text-muted)]">{result.summary}</div>
+                <div className="text-[11px] font-bold text-[#949ba4] uppercase mb-1">Summary</div>
+                <div className="text-[13px] text-[#949ba4]">{result.summary}</div>
               </div>
             )}
 
             <div className="flex items-center gap-2 text-[12px]">
-              <div className="flex-1 bg-[var(--bg-deep)] rounded-full h-2">
+              <div className="flex-1 bg-[#1e1f22] rounded-full h-2">
                 <div
                   className="h-2 rounded-full transition-all"
                   style={{
                     width: `${Math.round(result.confidence * 100)}%`,
-                    backgroundColor: result.confidence >= 0.8 ? "var(--success)" : result.confidence >= 0.5 ? "var(--warning)" : "var(--danger)",
+                    backgroundColor: result.confidence >= 0.8 ? "#23a559" : result.confidence >= 0.5 ? "#f59e0b" : "#f23f43",
                   }}
                 />
               </div>
-              <span className="text-[var(--text-muted)]">{Math.round(result.confidence * 100)}%</span>
+              <span className="text-[#949ba4]">{Math.round(result.confidence * 100)}%</span>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">

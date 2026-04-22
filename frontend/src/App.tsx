@@ -22,7 +22,7 @@ function AuthenticatedRoutes() {
 
 function App() {
   const { isAuthenticated, fetchMe } = useAuthStore();
-  useNotification();
+  useNotification(isAuthenticated);
 
   useEffect(() => {
     if (isAuthenticated) {

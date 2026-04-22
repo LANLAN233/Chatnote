@@ -38,36 +38,37 @@ export default function NoteEditor({ channelId }: NoteEditorProps) {
   const hasContent = content.trim().length > 0;
 
   return (
-    <div className="px-4 pb-6 shrink-0">
-      <div className="bg-[var(--bg-tertiary)] rounded-lg flex flex-col">
-        <div className="p-2 flex items-start gap-3">
-          <button type="button" className="w-8 h-8 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center shrink-0">
-            <PlusCircle className="w-6 h-6" />
+    <footer className="px-4 pb-6 flex-shrink-0">
+      <div className="bg-[#383a40] rounded-lg flex flex-col">
+        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="p-2 flex items-start gap-3">
+          <button type="button" className="w-8 h-8 rounded-full bg-[#383a40] text-[#b5bac1] hover:text-[#dbdee1] flex items-center justify-center">
+            <PlusCircle size={24} />
           </button>
           <textarea
             ref={textareaRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Send a note... (Enter to send, Shift+Enter for new line)"
-            className="flex-1 bg-transparent outline-none text-[var(--text-primary)] text-[15px] resize-none overflow-hidden leading-9 placeholder-[var(--text-muted)]"
+            placeholder={`Send a note... (Enter to send, Shift+Enter for new line)`}
+            className="flex-1 bg-transparent outline-none text-[#dbdee1] text-[15px] resize-none overflow-hidden h-9 leading-9 placeholder-[#949ba4]"
             rows={1}
             style={{ minHeight: "36px", maxHeight: "200px" }}
           />
-          <div className="flex gap-3 text-[var(--text-secondary)] mt-1 pr-1 items-center shrink-0">
-            <button type="button" className="hover:text-[var(--text-primary)]" title="Upload File">
-              <ImageIcon className="w-5 h-5" />
+          <div className="flex gap-3 text-[#b5bac1] mt-1 pr-1 items-center">
+            <button type="button" className="hover:text-[#dbdee1]" title="Upload File" onClick={() => alert("File upload placeholder - Feature coming soon.")}>
+              <ImageIcon size={20} />
             </button>
             <button
-              onClick={handleSubmit}
-              className={`hover:text-[var(--text-primary)] transition-colors ml-1 ${hasContent ? "text-[#5865f2]" : "text-[var(--text-secondary)]"}`}
+              type="button"
+              onClick={() => handleSubmit()}
+              className={`hover:text-[#dbdee1] transition-colors ml-1 ${hasContent ? "text-[#5865f2]" : "text-[#b5bac1]"}`}
               title="Send Message"
             >
-              <SendHorizontal className="w-6 h-6" />
+              <SendHorizontal size={24} />
             </button>
           </div>
-        </div>
+        </form>
       </div>
-    </div>
+    </footer>
   );
 }

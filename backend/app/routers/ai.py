@@ -18,7 +18,11 @@ async def ai_classify(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await classify_note(req.content, db, current_user.id)
+    result = await classify_note(
+        req.content, db, current_user.id,
+        llm_provider=current_user.preferred_llm,
+        api_key=current_user.api_key_encrypted or None,
+    )
     return ApiResponse(success=True, data=result)
 
 
@@ -77,7 +81,11 @@ async def smart_create_note(
             if channel:
                 channel_id = channel.id
     elif req.auto_classify:
-        classification = await classify_note(parsed.content, db, current_user.id)
+        classification = await classify_note(
+            parsed.content, db, current_user.id,
+            llm_provider=current_user.preferred_llm,
+            api_key=current_user.api_key_encrypted or None,
+        )
         classification = await resolve_classification(classification, db, current_user.id)
         server_id = classification.get("server_id")
         channel_id = classification.get("channel_id")

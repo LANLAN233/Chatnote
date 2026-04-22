@@ -5,8 +5,19 @@ export interface User {
   avatar: string | null;
   status: string;
   preferred_llm: string;
+  theme: string;
+  notifications_enabled: boolean;
+  api_key_encrypted: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserSettingsUpdate {
+  display_name?: string;
+  preferred_llm?: string;
+  api_key?: string;
+  theme?: string;
+  notifications_enabled?: boolean;
 }
 
 export interface Server {

@@ -218,6 +218,9 @@ async def parse_schedule_text(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
     """使用 AI 解析自然语言日程描述"""
-    llm_service = LLMService(api_key=None)
+    llm_service = LLMService(
+        api_key=current_user.api_key_encrypted or None,
+        provider=current_user.preferred_llm,
+    )
     result = await llm_service.parse_schedule(request.text)
     return result
