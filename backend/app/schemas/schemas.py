@@ -333,3 +333,53 @@ class AttachmentResponse(BaseModel):
     created_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
+
+class UserApiKeyCreate(BaseModel):
+    provider: str = Field(..., min_length=1)
+    api_key: str = Field(..., min_length=1)
+    model: str | None = None
+
+
+class UserApiKeyResponse(BaseModel):
+    id: int
+    user_id: int
+    provider: str
+    api_key_masked: str
+    model: str | None
+    is_default: bool
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ScheduleImportServer(BaseModel):
+    name: str
+    channels: list["ScheduleImportChannel"]
+
+
+class ScheduleImportChannel(BaseModel):
+    name: str
+    notes: list["ScheduleImportNote"]
+
+
+class ScheduleImportNote(BaseModel):
+    content: str
+
+
+class ScheduleImportSuggestion(BaseModel):
+    type: str
+    target_server: str | None = None
+    message: str
+
+
+class ScheduleImportRequest(BaseModel):
+    text: str | None = None
+    image_url: str | None = None
+
+
+class ScheduleImportResponse(BaseModel):
+    servers: list[ScheduleImportServer]
+    schedules: list[ScheduleResponse]
+    suggestions: list[ScheduleImportSuggestion]

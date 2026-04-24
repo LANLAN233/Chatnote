@@ -19,6 +19,31 @@ UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 
+@router.post("/temp-upload", response_model=ApiResponse)
+async def temp_upload(
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_user),
+):
+    """Upload a temporary image for AI vision processing."""
+    temp_dir = UPLOAD_DIR / "temp" / str(current_user.id)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    file_ext = Path(file.filename).suffix
+    safe_filename = f"temp_{int(__import__('time').time())}{file_ext}"
+    file_path = temp_dir / safe_filename
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Return a relative URL that can be used by the AI endpoint
+    relative = file_path.relative_to(UPLOAD_DIR)
+    return ApiResponse(
+        success=True,
+        data={"url": f"/uploads/temp/{current_user.id}/{safe_filename}", "filename": file.filename},
+        message="Image uploaded",
+    )
+
+
 @router.post("/upload/{note_id}", response_model=ApiResponse)
 async def upload_attachment(
     note_id: int,

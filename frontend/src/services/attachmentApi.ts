@@ -12,6 +12,16 @@ export interface Attachment {
 }
 
 export const attachmentApi = {
+  uploadTemp: async (file: File): Promise<{ url: string; filename: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await api.post<ApiResponse<{ url: string; filename: string }>>("/attachments/temp-upload", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return response.data.data as { url: string; filename: string };
+  },
   upload: async (noteId: number, file: File): Promise<Attachment> => {
     const formData = new FormData();
     formData.append("file", file);

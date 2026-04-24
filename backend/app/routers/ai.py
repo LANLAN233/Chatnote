@@ -5,8 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.models import Channel, Note, Server, User
 from app.routers.auth import get_current_user
-from app.schemas.schemas import ApiResponse, ClassifyRequest, ClassifyResponse, NoteCreateWithClassify, NoteResponse
+from app.schemas.schemas import (
+    ApiResponse,
+    ClassifyRequest,
+    ClassifyResponse,
+    NoteCreateWithClassify,
+    NoteResponse,
+    ScheduleImportRequest,
+)
 from app.services.classifier import classify_note, resolve_classification
+from app.services.llm import LLMService
 from app.services.parser import parse_input
 
 router = APIRouter(tags=["ai"])
@@ -172,3 +180,35 @@ async def get_stats(
             "recent_notes": [NoteResponse.model_validate(n).model_dump() for n in recent_notes],
         },
     )
+
+
+@router.post("/api/ai/import-schedule", response_model=ApiResponse)
+async def import_schedule(
+    req: ScheduleImportRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Parse course syllabus / schedule text and return structured suggestions."""
+    # 优先从 user_api_keys 查智谱 key，其次用旧的 api_key_encrypted
+    api_key = current_user.api_key_encrypted
+    provider = current_user.preferred_llm or "zhipu"
+
+    from app.models.models import UserApiKey
+    from app.services.crypto import decrypt
+    key_result = await db.execute(
+        select(UserApiKey).where(
+            UserApiKey.user_id == current_user.id,
+            UserApiKey.provider == "zhipu",
+        )
+    )
+    zhipu_key = key_result.scalar_one_or_none()
+    if zhipu_key:
+        try:
+            api_key = decrypt(zhipu_key.api_key_encrypted)
+            provider = "zhipu"
+        except Exception:
+            pass
+
+    llm_service = LLMService(api_key=api_key or None, provider=provider)
+    result = await llm_service.parse_schedule_import(req.text, req.image_url)
+    return ApiResponse(success=True, data=result)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { Hash, Plus, ChevronDown, Terminal, Book, Folder, Mic, Headphones, Settings } from "lucide-react";
+import { Hash, Plus, ChevronDown, Terminal, Book, Folder, Mic, Headphones, Settings, Server } from "lucide-react";
 import { useServerStore, useChannelStore, useAuthStore } from "../../stores";
 import ChannelModal from "../channels/ChannelModal";
 
@@ -21,6 +21,7 @@ export default function ChannelList() {
 
   const currentServer = servers.find((s) => s.id === currentServerId);
   const isConsole = location.pathname === "/console";
+  const isServerConsole = location.pathname.startsWith("/server/") && location.pathname.endsWith("/console");
 
   useEffect(() => {
     if (currentServerId) {
@@ -59,13 +60,24 @@ export default function ChannelList() {
           <button
             onClick={() => navigate("/console")}
             className={`w-full text-left px-2 py-[6px] rounded flex items-center gap-2 group transition-colors
-              ${isConsole
+              ${isConsole && !isServerConsole
                 ? "bg-[#3f4147] text-white"
                 : "text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
               }`}
           >
-            <Terminal size={20} className={isConsole ? "text-[#5865F2]" : "text-[#80848e]"} />
-            <span className="truncate text-[15px] font-bold leading-tight">控制台 (Terminal)</span>
+            <Terminal size={20} className={isConsole && !isServerConsole ? "text-[#5865F2]" : "text-[#80848e]"} />
+            <span className="truncate text-[15px] font-bold leading-tight">全局控制台</span>
+          </button>
+          <button
+            onClick={() => currentServerId && navigate(`/server/${currentServerId}/console`)}
+            className={`w-full text-left px-2 py-[6px] rounded flex items-center gap-2 group transition-colors
+              ${isServerConsole
+                ? "bg-[#3f4147] text-white"
+                : "text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
+              }`}
+          >
+            <Server size={20} className={isServerConsole ? "text-[#5865F2]" : "text-[#80848e]"} />
+            <span className="truncate text-[15px] font-bold leading-tight">服务器控制台</span>
           </button>
         </div>
 

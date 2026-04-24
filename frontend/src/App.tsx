@@ -7,6 +7,7 @@ import AppLayout from "./components/layout/AppLayout";
 import HomePage from "./components/home/HomePage";
 import NoteList from "./components/notes/NoteList";
 import ConsoleView from "./components/console/ConsoleView";
+import ServerConsoleView from "./components/console/ServerConsoleView";
 import CalendarPage from "./components/calendar/CalendarPage";
 import PluginManagerPage from "./components/plugins/PluginManagerPage";
 import { useNotification } from "./hooks/useNotification";
@@ -43,6 +44,7 @@ function App() {
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="plugins" element={<PluginManagerPage />} />
         <Route path="server/:serverId" element={<HomePage />} />
+        <Route path="server/:serverId/console" element={<ServerConsoleView />} />
         <Route path="server/:serverId/channel/:channelId" element={<NoteList />} />
       </Route>
     </Routes>

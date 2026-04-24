@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { authApi, serverApi, channelApi, noteApi, settingsApi } from "../services";
+import { authApi, serverApi, channelApi, noteApi, settingsApi, apiKeyApi } from "../services";
 import wsService from "../services/websocket";
-import type { Channel, Note, NoteList, Server, User, UserSettingsUpdate } from "../types";
+import type { Channel, Note, NoteList, Server, User, UserApiKey, UserSettingsUpdate } from "../types";
 
 interface AuthState {
   user: User | null;
@@ -9,12 +9,16 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   theme: string;
+  apiKeys: UserApiKey[];
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string, displayName?: string) => Promise<void>;
   logout: () => void;
   fetchMe: () => Promise<void>;
   updateSettings: (data: UserSettingsUpdate) => Promise<void>;
   setTheme: (theme: string) => void;
+  fetchApiKeys: () => Promise<void>;
+  addApiKey: (data: { provider: string; api_key: string; model?: string }) => Promise<void>;
+  deleteApiKey: (id: number) => Promise<void>;
 }
 
 const getInitialTheme = () => "dark";
@@ -23,12 +27,13 @@ const applyTheme = (theme: string) => {
   localStorage.setItem("theme", theme);
 };
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: localStorage.getItem("token"),
   isAuthenticated: !!localStorage.getItem("token"),
   isLoading: false,
   theme: getInitialTheme(),
+  apiKeys: [],
   login: async (username, password) => {
     const { data } = await authApi.login({ username, password });
     const responseData = data.data;
@@ -81,6 +86,22 @@ export const useAuthStore = create<AuthState>((set) => ({
   setTheme: (theme) => {
     applyTheme(theme);
     set({ theme });
+  },
+  fetchApiKeys: async () => {
+    try {
+      const { data } = await apiKeyApi.list();
+      set({ apiKeys: (data.data as UserApiKey[]) || [] });
+    } catch {
+      set({ apiKeys: [] });
+    }
+  },
+  addApiKey: async (keyData) => {
+    await apiKeyApi.create(keyData);
+    await get().fetchApiKeys();
+  },
+  deleteApiKey: async (id) => {
+    await apiKeyApi.delete(id);
+    await get().fetchApiKeys();
   },
 }));
 

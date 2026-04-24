@@ -10,12 +10,14 @@ import type {
   NoteCreate,
   NoteList,
   NoteUpdate,
+  ScheduleImportResult,
   Server,
   ServerCreate,
   ServerUpdate,
   SmartCreateResult,
   StatsData,
   User,
+  UserApiKey,
 } from "../types";
 
 export const authApi = {
@@ -67,6 +69,25 @@ export const aiApi = {
       content,
       auto_classify: autoClassify,
     }),
+  importSchedule: (text?: string, imageUrl?: string) => {
+    return api.post<ApiResponse<ScheduleImportResult>>("/ai/import-schedule", {
+      text,
+      image_url: imageUrl,
+    });
+  },
+};
+
+export const apiKeyApi = {
+  list: () => api.get<ApiResponse<UserApiKey[]>>("/settings/api-keys"),
+  create: (data: { provider: string; api_key: string; model?: string }) =>
+    api.post<ApiResponse<UserApiKey>>("/settings/api-keys", data),
+  delete: (id: number) => api.delete<ApiResponse<void>>(`/settings/api-keys/${id}`),
+  providers: () => api.get<ApiResponse<{ providers: Array<{ id: string; name: string; default_model: string; text_model: string; vision_model: string; base_url: string }> }>>("/settings/api-keys/providers"),
+};
+
+export const serverConsoleApi = {
+  execute: (serverId: number, input: string) =>
+    api.post<ApiResponse<ConsoleResult>>(`/server/${serverId}/console/execute`, { input }),
 };
 
 export const consoleApi = {

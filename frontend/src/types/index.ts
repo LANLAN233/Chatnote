@@ -229,3 +229,36 @@ export interface ScheduleParseResponse {
   is_all_day: boolean;
   confidence: number;
 }
+
+export interface UserApiKey {
+  id: number;
+  user_id: number;
+  provider: string;
+  api_key_masked: string;
+  model: string | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleImportChannel {
+  name: string;
+  notes: Array<{ content: string }>;
+}
+
+export interface ScheduleImportServer {
+  name: string;
+  channels: ScheduleImportChannel[];
+}
+
+export interface ScheduleImportSuggestion {
+  type: string;
+  target_server: string | null;
+  message: string;
+}
+
+export interface ScheduleImportResult {
+  servers: ScheduleImportServer[];
+  schedules: Schedule[];
+  suggestions: ScheduleImportSuggestion[];
+}

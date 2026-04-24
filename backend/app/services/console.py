@@ -210,11 +210,20 @@ COMMAND_REGISTRY: dict[str, Any] = {
 }
 
 
-async def execute_command(command: str, args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
+async def execute_command(
+    command: str,
+    args: str,
+    db: AsyncSession,
+    user_id: int,
+    server_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     handler = COMMAND_REGISTRY.get(command)
     if not handler:
         # Try to dispatch to plugins
-        responses = await plugin_manager.dispatch_command(command, args.split(), {"user_id": user_id})
+        ctx: dict[str, Any] = {"user_id": user_id}
+        if server_context:
+            ctx.update(server_context)
+        responses = await plugin_manager.dispatch_command(command, args.split(), ctx)
         if responses:
             return {
                 "type": "plugin_response",
@@ -225,4 +234,5 @@ async def execute_command(command: str, args: str, db: AsyncSession, user_id: in
             "type": "error",
             "content": f"Unknown command: /{command}\nType /help to see available commands.",
         }
+    # For now, scoped commands reuse the same handlers; search/todo can be enhanced later
     return await handler(args, db, user_id)

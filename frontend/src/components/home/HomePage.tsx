@@ -1,14 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   BookOpen, Clock, Target, ArrowRight, Star, Hash, SendHorizontal, Zap, CalendarDays
 } from "lucide-react";
 import { statsApi, aiApi, scheduleApi } from "../../services";
 import { useServerStore, useChannelStore } from "../../stores";
 import SearchModal from "../search/SearchModal";
+import HomeConsolePanel from "./HomeConsolePanel";
+import ScheduleImportPanel from "./ScheduleImportPanel";
 import type { StatsData, SmartCreateResult, Schedule, Note } from "../../types";
 
-export default function HomePage() {
+interface OutletContext {
+  homeTab: "overview" | "console" | "import";
+}
+
+function OverviewTab() {
   const navigate = useNavigate();
   const { fetchServers } = useServerStore();
   const { fetchChannels } = useChannelStore();
@@ -95,7 +101,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex-1 bg-[#313338] flex flex-col h-full overflow-hidden">
+    <>
       {/* Header */}
       <header className="h-48 bg-[#1e1f22] relative flex items-center px-12 overflow-hidden flex-shrink-0">
         <div className="absolute inset-0 opacity-10 pointer-events-none">
@@ -298,6 +304,18 @@ export default function HomePage() {
       </main>
 
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} onNoteClick={handleNoteClick} />}
+    </>
+  );
+}
+
+export default function HomePage() {
+  const { homeTab } = useOutletContext<OutletContext>();
+
+  return (
+    <div className="flex-1 bg-[#313338] flex flex-col h-full overflow-hidden">
+      {homeTab === "overview" && <OverviewTab />}
+      {homeTab === "console" && <HomeConsolePanel />}
+      {homeTab === "import" && <ScheduleImportPanel />}
     </div>
   );
 }
