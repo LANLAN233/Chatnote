@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,9 @@ from app.database import get_db
 from app.models.models import Plugin, User
 from app.plugins import plugin_manager
 from app.plugins.loader import (
+    BUILTIN_PLUGINS_DIR,
     DATA_PLUGINS_DIR,
+    PLUGIN_DIRS,
     PluginManifest,
     scan_plugin_dirs,
     sync_plugins_to_db,
@@ -86,6 +89,7 @@ async def _build_plugin_responses(db: AsyncSession) -> list[dict[str, Any]]:
                 "config": _config_to_dict(record.config),
                 "is_enabled": record.is_enabled,
                 "is_builtin": record.is_builtin,
+                "source_path": record.source_path,
                 "installed_at": record.installed_at,
                 "updated_at": record.updated_at,
             }
@@ -166,6 +170,7 @@ async def update_plugin(
             "config": _config_to_dict(record.config),
             "is_enabled": record.is_enabled,
             "is_builtin": record.is_builtin,
+            "source_path": record.source_path,
             "installed_at": record.installed_at,
             "updated_at": record.updated_at,
         },
@@ -211,9 +216,10 @@ async def delete_plugin(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Unload a plugin from runtime and DB.
+    """Delete a plugin: unload from runtime, remove from DB, and delete files.
 
-    Does NOT delete the plugin folder from the filesystem.
+    Built-in plugins are only unloaded (files are protected).
+    Community plugins have their folder removed from disk.
     """
     result = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
     record = result.scalar_one_or_none()
@@ -224,11 +230,38 @@ async def delete_plugin(
     # Unload from runtime
     plugin_manager.unload_plugin(record.plugin_id)
 
+    # Delete plugin folder from disk (only for community plugins)
+    if not record.is_builtin:
+        plugin_dir = Path(record.source_path)
+        if plugin_dir.exists() and plugin_dir.is_dir():
+            try:
+                shutil.rmtree(plugin_dir)
+            except OSError as e:
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to delete plugin folder: {e}"
+                )
+
     # Delete from database
     await db.delete(record)
     await db.commit()
 
-    return {"success": True, "message": "Plugin unloaded successfully"}
+    action = "unloaded" if record.is_builtin else "deleted"
+    return {"success": True, "message": f"Plugin {action} successfully"}
+
+
+@router.get("/directories", response_model=ApiResponse)
+async def list_plugin_directories(
+    current_user: User = Depends(get_current_user),
+):
+    """Return the plugin directories scanned by the system."""
+    return {
+        "success": True,
+        "data": {
+            "builtin": str(BUILTIN_PLUGINS_DIR.resolve()),
+            "community": str(DATA_PLUGINS_DIR.resolve()),
+            "all": [str(d.resolve()) for d in PLUGIN_DIRS],
+        },
+    }
 
 
 @router.post("/{plugin_id}/test", response_model=ApiResponse)

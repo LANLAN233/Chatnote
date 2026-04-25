@@ -32,8 +32,15 @@ export interface Plugin {
   config?: Record<string, unknown>;
   is_enabled: boolean;
   is_builtin: boolean;
+  source_path: string;
   installed_at: string;
   updated_at: string;
+}
+
+export interface PluginDirectories {
+  builtin: string;
+  community: string;
+  all: string[];
 }
 
 export interface UpdatePluginRequest {
@@ -63,6 +70,12 @@ export const pluginApi = {
   listPlugins: async (): Promise<Plugin[]> => {
     const response = await api.get("/plugins");
     return response.data.data || [];
+  },
+
+  // Get plugin directories
+  listDirectories: async (): Promise<PluginDirectories> => {
+    const response = await api.get("/plugins/directories");
+    return response.data.data;
   },
 
   // Update plugin configuration
