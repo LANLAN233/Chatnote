@@ -274,33 +274,48 @@ class PluginConfigSchema(BaseModel):
     enum: list[object] | None = None
 
 
+class PluginManifestData(BaseModel):
+    """Manifest data for a plugin (matches manifest.json)."""
+
+    id: str
+    name: str
+    version: str = "1.0.0"
+    description: str | None = None
+    author: str | None = None
+    min_app_version: str | None = None
+
+
 class PluginCreate(BaseModel):
+    """Kept for backward compat; not used in new scan-based system."""
+
     name: str = Field(..., min_length=1, max_length=100)
     version: str = Field(default="1.0.0", max_length=20)
     description: str | None = None
     author: str | None = None
-    entry_point: str = Field(..., min_length=1)  # Python module path
+    entry_point: str = Field(..., min_length=1)
     config_schema: list[PluginConfigSchema] | None = None
     config: dict | None = None
     is_builtin: bool = False
 
 
 class PluginUpdate(BaseModel):
-    name: str | None = Field(None, min_length=1, max_length=100)
-    version: str | None = Field(None, max_length=20)
-    description: str | None = None
-    author: str | None = None
     config: dict | None = None
     is_enabled: bool | None = None
 
 
 class PluginResponse(BaseModel):
+    """Response model for plugin listing.
+
+    Metadata (name/version/description/author/config_schema) is read
+    from manifest.json at scan time, not from DB.
+    """
+
     id: int
+    plugin_id: str
     name: str
     version: str
     description: str | None
     author: str | None
-    entry_point: str
     config_schema: list[PluginConfigSchema] | None
     config: dict | None
     is_enabled: bool
@@ -313,6 +328,14 @@ class PluginResponse(BaseModel):
 
 class PluginToggleRequest(BaseModel):
     is_enabled: bool
+
+
+class PluginDeployRequest(BaseModel):
+    """Request body for deploying a plugin from developer console."""
+
+    id: str = Field(..., min_length=1, max_length=100)
+    manifest: PluginManifestData
+    code: str = Field(..., min_length=1)
 
 
 class PluginMessage(BaseModel):

@@ -1,7 +1,4 @@
 """Builtin plugins package."""
 
-from app.plugins.builtin.class_watcher import ClassWatcherPlugin
-from app.plugins.builtin.math_solver import MathSolverPlugin
-from app.plugins.builtin.summary_bot import SummaryBotPlugin
-
-__all__ = ["MathSolverPlugin", "SummaryBotPlugin", "ClassWatcherPlugin"]
+# Plugins are now loaded dynamically via loader.py by scanning subdirectories.
+# Each plugin folder contains manifest.json + main.py.

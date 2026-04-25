@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime
 from typing import Any
 
-from app.plugins.base import BasePlugin, plugin
+from app.plugins.base import BasePlugin
 
 
-@plugin
 class ClassWatcherPlugin(BasePlugin):
     """Plugin that watches for class schedules and sends reminders."""
 
@@ -113,6 +112,7 @@ class ClassWatcherPlugin(BasePlugin):
 
     def _extract_class_name(self, content: str) -> str | None:
         """Extract class name from content."""
+        import re
         # Common patterns
         patterns = [
             r"(\w+)课",
@@ -120,7 +120,6 @@ class ClassWatcherPlugin(BasePlugin):
             r"(\w+)开始",
         ]
 
-        import re
         for pattern in patterns:
             match = re.search(pattern, content)
             if match:

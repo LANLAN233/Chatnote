@@ -6,10 +6,9 @@ import math
 import re
 from typing import Any
 
-from app.plugins.base import BasePlugin, plugin
+from app.plugins.base import BasePlugin
 
 
-@plugin
 class MathSolverPlugin(BasePlugin):
     """Plugin that detects and solves mathematical expressions."""
 

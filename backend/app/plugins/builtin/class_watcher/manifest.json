@@ -1,0 +1,8 @@
+{
+  "id": "class-watcher",
+  "name": "Class Watcher",
+  "version": "1.0.0",
+  "description": "课程提醒与出勤追踪，自动提醒即将到来的课程",
+  "author": "ChatNote",
+  "min_app_version": "1.0.0"
+}

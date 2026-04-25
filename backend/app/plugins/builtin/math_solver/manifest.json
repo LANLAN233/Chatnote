@@ -1,0 +1,8 @@
+{
+  "id": "math-solver",
+  "name": "Math Solver",
+  "version": "1.0.0",
+  "description": "自动检测并计算数学表达式，支持基本运算、函数和常量",
+  "author": "ChatNote",
+  "min_app_version": "1.0.0"
+}

@@ -1,13 +1,21 @@
-"""Plugin runtime environment with security sandbox."""
+"""Plugin runtime environment with security sandbox.
+
+Refactored to Obsidian-style folder-based plugins.
+- Scan PLUGIN_DIRS for manifest.json + main.py
+- Sync with DB, then load into runtime
+"""
 
 from __future__ import annotations
 
 import ast
-import importlib
 import re
 from typing import Any
 
-from app.plugins.base import BasePlugin, PluginRegistry
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.models import Plugin as PluginModel
+from app.plugins.base import BasePlugin
 
 
 class PluginSandbox:
@@ -15,6 +23,7 @@ class PluginSandbox:
 
     # Allowed modules for plugins
     ALLOWED_MODULES = {
+        "__future__",
         "math",
         "random",
         "datetime",
@@ -39,14 +48,27 @@ class PluginSandbox:
         r"import\s+subprocess",
         r"import\s+socket",
         r"__import__",
-        r"eval\s*\(",
-        r"exec\s*\(",
-        r"compile\s*\(",
-        r"open\s*\(",
+        r"(?<![a-zA-Z0-9_])eval\s*\(",
+        r"(?<![a-zA-Z0-9_])exec\s*\(",
+        r"(?<![a-zA-Z0-9_])compile\s*\(",
+        r"(?<![a-zA-Z0-9_])open\s*\(",
         r"\.system\s*\(",
         r"\.popen\s*\(",
         r"\.call\s*\(",
     ]
+
+    @classmethod
+    def _is_allowed_import(cls, module_name: str) -> bool:
+        """Check if a module import is allowed.
+
+        Allows app.plugins.base (required for BasePlugin) but blocks other app modules.
+        """
+        if module_name in cls.ALLOWED_MODULES:
+            return True
+        if module_name == "app":
+            # Only allow app.plugins.base, not other app modules
+            return True  # AST check below will verify the full path
+        return False
 
     @classmethod
     def validate_code(cls, code: str) -> tuple[bool, str]:
@@ -54,7 +76,7 @@ class PluginSandbox:
         # Check for dangerous patterns
         for pattern in cls.DANGEROUS_PATTERNS:
             if re.search(pattern, code, re.IGNORECASE):
-                return False, f"Dangerous pattern detected"
+                return False, "Dangerous pattern detected"
 
         # Parse AST to check imports
         try:
@@ -65,13 +87,21 @@ class PluginSandbox:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    module_name = alias.name.split(".")[0]
-                    if module_name not in cls.ALLOWED_MODULES:
+                    full_module = alias.name
+                    module_name = full_module.split(".")[0]
+                    if module_name == "app":
+                        if full_module != "app.plugins.base":
+                            return False, f"Import not allowed: {full_module}"
+                    elif module_name not in cls.ALLOWED_MODULES:
                         return False, f"Import not allowed: {module_name}"
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
-                    module_name = node.module.split(".")[0]
-                    if module_name not in cls.ALLOWED_MODULES:
+                    full_module = node.module
+                    module_name = full_module.split(".")[0]
+                    if module_name == "app":
+                        if full_module != "app.plugins.base":
+                            return False, f"Import not allowed: {full_module}"
+                    elif module_name not in cls.ALLOWED_MODULES:
                         return False, f"Import not allowed: {module_name}"
 
         return True, ""
@@ -80,7 +110,12 @@ class PluginSandbox:
 class PluginInstance:
     """Wrapper for a loaded plugin instance."""
 
-    def __init__(self, plugin_id: int, plugin_class: type[BasePlugin], config: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        plugin_id: int,
+        plugin_class: type[BasePlugin],
+        config: dict[str, Any] | None = None,
+    ):
         self.plugin_id = plugin_id
         self.plugin_class = plugin_class
         self.instance = plugin_class(config)
@@ -88,7 +123,9 @@ class PluginInstance:
         self.version = plugin_class.version
         self.enabled = True
 
-    async def on_message(self, content: str, context: dict[str, Any] | None = None) -> str | None:
+    async def on_message(
+        self, content: str, context: dict[str, Any] | None = None
+    ) -> str | None:
         """Handle message if plugin is enabled."""
         if not self.enabled or not self.instance.enabled:
             return None
@@ -97,7 +134,9 @@ class PluginInstance:
         except Exception as e:
             return f"[{self.name}] Error: {str(e)}"
 
-    async def on_command(self, command: str, args: list[str], context: dict[str, Any] | None = None) -> str | None:
+    async def on_command(
+        self, command: str, args: list[str], context: dict[str, Any] | None = None
+    ) -> str | None:
         """Handle command if plugin is enabled."""
         if not self.enabled or not self.instance.enabled:
             return None
@@ -106,7 +145,9 @@ class PluginInstance:
         except Exception as e:
             return f"[{self.name}] Error: {str(e)}"
 
-    async def on_schedule(self, event: dict[str, Any], context: dict[str, Any] | None = None) -> str | None:
+    async def on_schedule(
+        self, event: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> str | None:
         """Handle schedule event if plugin is enabled."""
         if not self.enabled or not self.instance.enabled:
             return None
@@ -146,127 +187,151 @@ class PluginManager:
         self._plugins: dict[str, PluginInstance] = {}
         self._plugins_by_id: dict[int, PluginInstance] = {}
 
-    def load_builtin_plugins(self) -> None:
-        """Load all builtin plugins from the plugins directory."""
-        # Import builtin plugins to register them
-        from app.plugins.builtin import (  # noqa: F401
-            class_watcher,
-            math_solver,
-            summary_bot,
-        )
+    async def scan_plugins(self, db: AsyncSession) -> None:
+        """Scan plugin directories, sync to DB, and load into runtime.
 
-        # Register plugins from registry
-        for name, plugin_class in PluginRegistry.get_all().items():
-            if name not in self._plugins:
-                instance = PluginInstance(0, plugin_class, {})
-                instance.instance.is_builtin = True
-                self._plugins[name] = instance
+        This is the main entry point for plugin discovery.
+        """
+        from app.plugins.loader import scan_plugin_dirs, sync_plugins_to_db
 
-    def load_plugin_from_db(self, plugin_id: int, entry_point: str, config: dict[str, Any] | None = None) -> tuple[bool, str]:
-        """Load a plugin from database entry."""
-        try:
-            # Try to get from registry first (builtin plugins)
-            plugin_class = PluginRegistry.get(entry_point)
+        # 1. Scan filesystem
+        discovered = scan_plugin_dirs()
 
-            if plugin_class is None:
-                # Try to import as module
-                if "." in entry_point:
-                    module_path, class_name = entry_point.rsplit(".", 1)
-                    module = importlib.import_module(module_path)
-                    plugin_class = getattr(module, class_name)
-                else:
-                    plugin_class = PluginRegistry.get(entry_point)
+        # 2. Sync to DB
+        await sync_plugins_to_db(db, discovered)
 
-            if plugin_class is None:
-                return False, f"Plugin class not found: {entry_point}"
+        # 3. Load into runtime
+        await self._load_from_db(db, discovered)
 
-            if not issubclass(plugin_class, BasePlugin):
-                return False, f"Class does not inherit from BasePlugin"
+    async def _load_from_db(
+        self, db: AsyncSession, discovered: list
+    ) -> None:
+        """Load plugins from DB records into runtime.
 
-            instance = PluginInstance(plugin_id, plugin_class, config)
-            name = plugin_class.name or plugin_class.__name__
-            self._plugins[name] = instance
-            self._plugins_by_id[plugin_id] = instance
+        Uses the DB as the source of truth for is_enabled state.
+        """
+        from app.plugins.loader import DiscoveredPlugin
 
-            return True, ""
-        except Exception as e:
-            return False, f"Failed to load plugin: {str(e)}"
+        result = await db.execute(select(PluginModel))
+        db_records = {r.plugin_id: r for r in result.scalars().all()}
 
-    def unload_plugin(self, name: str) -> bool:
-        """Unload a plugin by name."""
-        if name in self._plugins:
-            instance = self._plugins[name]
-            del self._plugins[name]
+        # Clear current runtime state
+        self._plugins.clear()
+        self._plugins_by_id.clear()
+
+        # Build lookup from manifest id -> discovered plugin
+        discovered_map: dict[str, DiscoveredPlugin] = {
+            dp.manifest.id: dp for dp in discovered
+        }
+
+        for record in db_records.values():
+            dp = discovered_map.get(record.plugin_id)
+            if dp is None:
+                continue  # Stale record, file missing
+
+            config: dict[str, Any] = {}
+            if record.config:
+                import json
+
+                try:
+                    config = json.loads(record.config)
+                except json.JSONDecodeError:
+                    config = {}
+
+            instance = PluginInstance(record.id, dp.plugin_class, config)
+            instance.enabled = record.is_enabled
+            instance.instance.enabled = record.is_enabled
+
+            self._plugins[record.plugin_id] = instance
+            self._plugins_by_id[record.id] = instance
+
+    def unload_plugin(self, plugin_id_str: str) -> bool:
+        """Unload a plugin by its plugin_id (manifest id)."""
+        if plugin_id_str in self._plugins:
+            instance = self._plugins[plugin_id_str]
+            del self._plugins[plugin_id_str]
             if instance.plugin_id in self._plugins_by_id:
                 del self._plugins_by_id[instance.plugin_id]
             return True
         return False
 
-    def get_plugin(self, name: str) -> PluginInstance | None:
-        """Get a loaded plugin by name."""
-        return self._plugins.get(name)
+    def get_plugin(self, plugin_id_str: str) -> PluginInstance | None:
+        """Get a loaded plugin by its plugin_id (manifest id)."""
+        return self._plugins.get(plugin_id_str)
 
-    def get_plugin_by_id(self, plugin_id: int) -> PluginInstance | None:
-        """Get a loaded plugin by ID."""
-        return self._plugins_by_id.get(plugin_id)
+    def get_plugin_by_db_id(self, db_id: int) -> PluginInstance | None:
+        """Get a loaded plugin by database ID."""
+        return self._plugins_by_id.get(db_id)
 
     def get_all_plugins(self) -> list[PluginInstance]:
         """Get all loaded plugins."""
         return list(self._plugins.values())
 
-    async def dispatch_message(self, content: str, context: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def dispatch_message(
+        self, content: str, context: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Dispatch a message to all enabled plugins."""
         responses = []
         for instance in self._plugins.values():
             response = await instance.on_message(content, context)
             if response:
-                responses.append({
-                    "plugin_name": instance.name,
-                    "plugin_id": instance.plugin_id,
-                    "message": response,
-                    "type": "response",
-                })
+                responses.append(
+                    {
+                        "plugin_name": instance.name,
+                        "plugin_id": instance.plugin_id,
+                        "message": response,
+                        "type": "response",
+                    }
+                )
         return responses
 
-    async def dispatch_command(self, command: str, args: list[str], context: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def dispatch_command(
+        self, command: str, args: list[str], context: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Dispatch a command to all enabled plugins."""
         responses = []
         for instance in self._plugins.values():
             response = await instance.on_command(command, args, context)
             if response:
-                responses.append({
-                    "plugin_name": instance.name,
-                    "plugin_id": instance.plugin_id,
-                    "message": response,
-                    "type": "response",
-                })
+                responses.append(
+                    {
+                        "plugin_name": instance.name,
+                        "plugin_id": instance.plugin_id,
+                        "message": response,
+                        "type": "response",
+                    }
+                )
         return responses
 
-    async def dispatch_schedule(self, event: dict[str, Any], context: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def dispatch_schedule(
+        self, event: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Dispatch a schedule event to all enabled plugins."""
         responses = []
         for instance in self._plugins.values():
             response = await instance.on_schedule(event, context)
             if response:
-                responses.append({
-                    "plugin_name": instance.name,
-                    "plugin_id": instance.plugin_id,
-                    "message": response,
-                    "type": "response",
-                })
+                responses.append(
+                    {
+                        "plugin_name": instance.name,
+                        "plugin_id": instance.plugin_id,
+                        "message": response,
+                        "type": "response",
+                    }
+                )
         return responses
 
-    def enable_plugin(self, name: str) -> bool:
-        """Enable a plugin by name."""
-        instance = self._plugins.get(name)
+    def enable_plugin(self, plugin_id_str: str) -> bool:
+        """Enable a plugin by its plugin_id (manifest id)."""
+        instance = self._plugins.get(plugin_id_str)
         if instance:
             instance.enable()
             return True
         return False
 
-    def disable_plugin(self, name: str) -> bool:
-        """Disable a plugin by name."""
-        instance = self._plugins.get(name)
+    def disable_plugin(self, plugin_id_str: str) -> bool:
+        """Disable a plugin by its plugin_id (manifest id)."""
+        instance = self._plugins.get(plugin_id_str)
         if instance:
             instance.disable()
             return True

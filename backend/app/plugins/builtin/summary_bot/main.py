@@ -5,10 +5,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.plugins.base import BasePlugin, plugin
+from app.plugins.base import BasePlugin
 
 
-@plugin
 class SummaryBotPlugin(BasePlugin):
     """Plugin that automatically summarizes long text content."""
 

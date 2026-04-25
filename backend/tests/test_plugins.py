@@ -1,42 +1,23 @@
-"""Tests for plugin system."""
+"""Tests for plugin system (Obsidian-style folder-based)."""
 
 import pytest
 from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_list_builtin_plugins(client: AsyncClient, auth_headers: dict):
-    """Test listing builtin plugins."""
-    response = await client.get("/api/plugins/builtin", headers=auth_headers)
+async def test_list_plugins(client: AsyncClient, auth_headers: dict):
+    """Test listing all plugins via scan."""
+    response = await client.get("/api/plugins", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
     plugins = data["data"]
     assert len(plugins) >= 3
-    
+
     plugin_names = [p["name"] for p in plugins]
     assert "Math Solver" in plugin_names
     assert "Summary Bot" in plugin_names
     assert "Class Watcher" in plugin_names
-
-
-@pytest.mark.asyncio
-async def test_install_builtin_plugin(client: AsyncClient, auth_headers: dict):
-    """Test installing a builtin plugin."""
-    plugin_data = {
-        "name": "Math Solver",
-        "version": "1.0.0",
-        "description": "Test math solver",
-        "entry_point": "app.plugins.builtin.math_solver.MathSolverPlugin",
-        "config": {"auto_detect": True},
-        "is_builtin": True,
-    }
-    
-    response = await client.post("/api/plugins", json=plugin_data, headers=auth_headers)
-    assert response.status_code in [200, 201]
-    data = response.json()
-    assert data["success"] is True
-    assert data["data"]["name"] == "Math Solver"
 
 
 @pytest.mark.asyncio
@@ -52,23 +33,12 @@ async def test_list_installed_plugins(client: AsyncClient, auth_headers: dict):
 @pytest.mark.asyncio
 async def test_toggle_plugin(client: AsyncClient, auth_headers: dict):
     """Test toggling plugin enable/disable."""
-    # First install a plugin
-    plugin_data = {
-        "name": "Math Solver",
-        "version": "1.0.0",
-        "entry_point": "app.plugins.builtin.math_solver.MathSolverPlugin",
-        "is_builtin": True,
-    }
-    
-    install_response = await client.post("/api/plugins", json=plugin_data, headers=auth_headers)
-    if install_response.status_code == 400:  # May already exist
-        # Get plugin ID
-        list_response = await client.get("/api/plugins", headers=auth_headers)
-        plugins = list_response.json()["data"]
-        plugin_id = next((p["id"] for p in plugins if p["name"] == "Math Solver"), None)
-    else:
-        plugin_id = install_response.json()["data"]["id"]
-    
+    # Get plugin ID from list
+    list_response = await client.get("/api/plugins", headers=auth_headers)
+    plugins = list_response.json()["data"]
+    plugin_id = next((p["id"] for p in plugins if p["name"] == "Math Solver"), None)
+    assert plugin_id is not None
+
     # Toggle off
     response = await client.post(
         f"/api/plugins/{plugin_id}/toggle",
@@ -79,7 +49,7 @@ async def test_toggle_plugin(client: AsyncClient, auth_headers: dict):
     data = response.json()
     assert data["success"] is True
     assert data["data"]["is_enabled"] is False
-    
+
     # Toggle on
     response = await client.post(
         f"/api/plugins/{plugin_id}/toggle",
@@ -134,12 +104,84 @@ async def test_console_plugins_command(client: AsyncClient, auth_headers: dict):
     assert data["success"] is True
     result = data["data"]
     assert result["type"] == "text"
-    assert "Plugins:" in result["content"]
+    assert "Math Solver" in result["content"]
 
 
 @pytest.mark.asyncio
 async def test_delete_plugin(client: AsyncClient, auth_headers: dict):
-    """Test uninstalling a plugin."""
-    # This test should use a non-builtin plugin
-    # For now, just test the endpoint exists
-    pass
+    """Test deleting (unloading) a plugin."""
+    # Deploy a community plugin first
+    deploy_data = {
+        "id": "test-plugin",
+        "manifest": {
+            "id": "test-plugin",
+            "name": "Test Plugin",
+            "version": "1.0.0",
+        },
+        "code": (
+            "from app.plugins.base import BasePlugin\n"
+            "class TestPlugin(BasePlugin):\n"
+            "    name = 'Test Plugin'\n"
+            "    def on_message(self, content, context=None):\n"
+            "        return 'Hello from test plugin'\n"
+        ),
+    }
+    deploy_response = await client.post(
+        "/api/plugins/deploy", json=deploy_data, headers=auth_headers
+    )
+    assert deploy_response.status_code == 200
+    deployed = deploy_response.json()["data"]
+    plugin_id = deployed["id"]
+
+    # Now delete/unload it
+    response = await client.delete(f"/api/plugins/{plugin_id}", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_deploy_plugin(client: AsyncClient, auth_headers: dict):
+    """Test deploying a plugin from developer console."""
+    deploy_data = {
+        "id": "hello-world",
+        "manifest": {
+            "id": "hello-world",
+            "name": "Hello World",
+            "version": "1.0.0",
+            "description": "A simple test plugin",
+            "author": "Tester",
+        },
+        "code": (
+            "from app.plugins.base import BasePlugin\n"
+            "class HelloWorldPlugin(BasePlugin):\n"
+            "    name = 'Hello World'\n"
+            "    def on_message(self, content, context=None):\n"
+            "        return f'Hello, you said: {content}'\n"
+        ),
+    }
+
+    response = await client.post(
+        "/api/plugins/deploy", json=deploy_data, headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["plugin_id"] == "hello-world"
+    assert data["data"]["is_enabled"] is False  # Community defaults to False
+
+    # List plugins and verify it appears
+    list_response = await client.get("/api/plugins", headers=auth_headers)
+    plugins = list_response.json()["data"]
+    plugin_names = [p["name"] for p in plugins]
+    assert "Hello World" in plugin_names
+
+    # Test the plugin
+    plugin_id = next(p["id"] for p in plugins if p["plugin_id"] == "hello-world")
+    test_response = await client.post(
+        f"/api/plugins/{plugin_id}/test",
+        json={"content": "test message"},
+        headers=auth_headers,
+    )
+    # Plugin is disabled by default, so test may fail or return None
+    assert test_response.status_code in [200, 404]

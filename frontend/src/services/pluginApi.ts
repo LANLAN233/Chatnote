@@ -12,13 +12,22 @@ export interface PluginConfigSchema {
   maximum?: number;
 }
 
-export interface Plugin {
-  id: number;
+export interface PluginManifest {
+  id: string;
   name: string;
   version: string;
   description?: string;
   author?: string;
-  entry_point: string;
+  min_app_version?: string;
+}
+
+export interface Plugin {
+  id: number;
+  plugin_id: string;
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
   config_schema?: PluginConfigSchema[];
   config?: Record<string, unknown>;
   is_enabled: boolean;
@@ -27,22 +36,7 @@ export interface Plugin {
   updated_at: string;
 }
 
-export interface CreatePluginRequest {
-  name: string;
-  version?: string;
-  description?: string;
-  author?: string;
-  entry_point: string;
-  config_schema?: PluginConfigSchema[];
-  config?: Record<string, unknown>;
-  is_builtin?: boolean;
-}
-
 export interface UpdatePluginRequest {
-  name?: string;
-  version?: string;
-  description?: string;
-  author?: string;
   config?: Record<string, unknown>;
   is_enabled?: boolean;
 }
@@ -51,30 +45,24 @@ export interface PluginToggleRequest {
   is_enabled: boolean;
 }
 
-export interface PluginResponse {
-  plugin_name: string;
-  plugin_id: number;
-  message: string;
-  type: string;
+export interface PluginDeployRequest {
+  id: string;
+  manifest: PluginManifest;
+  code: string;
+}
+
+export interface PluginDeployResponse {
+  id: number;
+  plugin_id: string;
+  is_enabled: boolean;
+  source_path: string;
 }
 
 export const pluginApi = {
-  // List all installed plugins
+  // List all plugins (triggers scan)
   listPlugins: async (): Promise<Plugin[]> => {
     const response = await api.get("/plugins");
     return response.data.data || [];
-  },
-
-  // List builtin plugins
-  listBuiltinPlugins: async (): Promise<Omit<Plugin, "id" | "installed_at" | "updated_at">[]> => {
-    const response = await api.get("/plugins/builtin");
-    return response.data.data || [];
-  },
-
-  // Install a plugin
-  installPlugin: async (data: CreatePluginRequest): Promise<Plugin> => {
-    const response = await api.post("/plugins", data);
-    return response.data.data;
   },
 
   // Update plugin configuration
@@ -88,8 +76,8 @@ export const pluginApi = {
     await api.post(`/plugins/${id}/toggle`, { is_enabled: isEnabled });
   },
 
-  // Uninstall a plugin
-  uninstallPlugin: async (id: number): Promise<void> => {
+  // Unload a plugin (delete from DB/runtime, not filesystem)
+  unloadPlugin: async (id: number): Promise<void> => {
     await api.delete(`/plugins/${id}`);
   },
 
@@ -97,6 +85,12 @@ export const pluginApi = {
   testPlugin: async (id: number, content: string): Promise<string | null> => {
     const response = await api.post(`/plugins/${id}/test`, { content });
     return response.data.data?.response || null;
+  },
+
+  // Deploy a plugin from developer console
+  deployPlugin: async (data: PluginDeployRequest): Promise<PluginDeployResponse> => {
+    const response = await api.post("/plugins/deploy", data);
+    return response.data.data;
   },
 };
 

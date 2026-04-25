@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Puzzle, Calculator, FileText, Zap, Construction } from "lucide-react";
+import { Puzzle, RefreshCw, Settings, Trash2, Code2 } from "lucide-react";
 import pluginApi, { type Plugin, type PluginConfigSchema } from "../../services/pluginApi";
+import PluginDevConsole from "./PluginDevConsole";
 
 interface PluginConfigFormProps {
   plugin: Plugin;
@@ -109,7 +110,7 @@ function PluginConfigForm({ plugin, onSave, onCancel }: PluginConfigFormProps) {
       <div className="bg-[#313338] w-full max-w-md rounded-xl shadow-2xl border border-[#1e1f22] overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="p-4 border-b border-[#1e1f22] flex justify-between items-center">
           <h3 className="font-bold text-white flex items-center gap-2">
-            <Puzzle size={20} className="text-[#5865f2]" /> Configure {plugin.name}
+            <Settings size={20} className="text-[#5865f2]" /> Configure {plugin.name}
           </h3>
           <button onClick={onCancel} className="text-gray-400 hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -146,93 +147,88 @@ function PluginConfigForm({ plugin, onSave, onCancel }: PluginConfigFormProps) {
   );
 }
 
-interface InstallPluginModalProps {
-  builtinPlugins: Omit<Plugin, "id" | "installed_at" | "updated_at">[];
-  onInstall: (plugin: Omit<Plugin, "id" | "installed_at" | "updated_at">) => void;
-  onClose: () => void;
+interface PluginListSectionProps {
+  title: string;
+  plugins: Plugin[];
+  onToggle: (plugin: Plugin) => void;
+  onConfigure: (plugin: Plugin) => void;
+  onDelete: (plugin: Plugin) => void;
 }
 
-function InstallPluginModal({
-  builtinPlugins,
-  onInstall,
-  onClose,
-}: InstallPluginModalProps) {
+function PluginListSection({ title, plugins, onToggle, onConfigure, onDelete }: PluginListSectionProps) {
+  if (plugins.length === 0) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#313338] rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col border border-[#1e1f22] overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#1e1f22]">
-          <h3 className="text-lg font-semibold text-white">Install Plugin</h3>
-          <p className="text-sm text-[#949ba4] mt-1">
-            Choose a builtin plugin to install
-          </p>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="grid gap-4">
-            {builtinPlugins.map((plugin) => (
-              <div
-                key={plugin.entry_point}
-                className="flex items-start gap-4 p-4 bg-[#2b2d31] rounded-lg hover:bg-[#35373c] transition-colors border border-[#1e1f22]"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h4 className="font-medium text-white">{plugin.name}</h4>
-                    <span className="text-xs text-[#949ba4]">
-                      v{plugin.version}
-                    </span>
-                  </div>
-                  <p className="text-sm text-[#949ba4] mt-1">
-                    {plugin.description}
-                  </p>
-                  {plugin.author && (
-                    <p className="text-xs text-[#949ba4] mt-2">
-                      by {plugin.author}
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={() => onInstall(plugin)}
-                  className="px-4 py-2 bg-[#5865f2] hover:bg-[#4752c4] text-white text-sm rounded-md transition-colors"
-                >
-                  Install
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="px-6 py-4 border-t border-[#1e1f22] flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+    <section className="mb-6">
+      <h3 className="text-[#949ba4] text-xs font-bold uppercase tracking-wider mb-3 px-1">
+        {title}
+      </h3>
+      <div className="space-y-2">
+        {plugins.map((plugin) => (
+          <div
+            key={plugin.id}
+            className="flex items-center gap-4 p-3 bg-[#2b2d31] rounded-lg border border-[#1e1f22] hover:border-[#3f4147] transition-colors"
           >
-            Close
-          </button>
-        </div>
+            <input
+              type="checkbox"
+              checked={plugin.is_enabled}
+              onChange={() => onToggle(plugin)}
+              className="w-5 h-5 rounded border-gray-600 text-[#5865f2] focus:ring-[#5865f2] cursor-pointer shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-white text-sm">{plugin.name}</span>
+                <span className="text-xs text-[#949ba4]">v{plugin.version}</span>
+                {plugin.is_builtin && (
+                  <span className="text-[10px] px-1.5 py-0.5 bg-[#35373c] text-[#949ba4] rounded">
+                    Built-in
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[#949ba4] truncate">
+                {plugin.description || "No description"}
+                {plugin.author && ` · by ${plugin.author}`}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {plugin.config_schema && plugin.config_schema.length > 0 && (
+                <button
+                  onClick={() => onConfigure(plugin)}
+                  className="p-2 text-[#949ba4] hover:text-white hover:bg-[#35373c] rounded transition-colors"
+                  title="Configure"
+                >
+                  <Settings size={16} />
+                </button>
+              )}
+              {!plugin.is_builtin && (
+                <button
+                  onClick={() => onDelete(plugin)}
+                  className="p-2 text-[#949ba4] hover:text-red-400 hover:bg-[#35373c] rounded transition-colors"
+                  title="Unload"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
-    </div>
+    </section>
   );
 }
 
 export default function PluginManagerPage() {
   const [plugins, setPlugins] = useState<Plugin[]>([]);
-  const [builtinPlugins, setBuiltinPlugins] = useState<
-    Omit<Plugin, "id" | "installed_at" | "updated_at">[]
-  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [configuringPlugin, setConfiguringPlugin] = useState<Plugin | null>(
-    null
-  );
-  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [configuringPlugin, setConfiguringPlugin] = useState<Plugin | null>(null);
+  const [showDevConsole, setShowDevConsole] = useState(false);
 
   const fetchPlugins = async () => {
     try {
       setLoading(true);
-      const [installed, builtin] = await Promise.all([
-        pluginApi.listPlugins(),
-        pluginApi.listBuiltinPlugins(),
-      ]);
-      setPlugins(installed);
-      setBuiltinPlugins(builtin);
+      const data = await pluginApi.listPlugins();
+      setPlugins(data);
     } catch (err) {
       setError("Failed to load plugins");
       console.error(err);
@@ -274,41 +270,20 @@ export default function PluginManagerPage() {
     }
   };
 
-  const handleInstall = async (
-    plugin: Omit<Plugin, "id" | "installed_at" | "updated_at">
-  ) => {
-    try {
-      await pluginApi.installPlugin({
-        name: plugin.name,
-        version: plugin.version,
-        description: plugin.description,
-        author: plugin.author,
-        entry_point: plugin.entry_point,
-        config_schema: plugin.config_schema,
-        is_builtin: true,
-      });
-      await fetchPlugins();
-      setShowInstallModal(false);
-    } catch (err) {
-      console.error("Failed to install plugin:", err);
-    }
-  };
-
-  const handleUninstall = async (plugin: Plugin) => {
-    if (plugin.is_builtin) {
-      alert("Cannot uninstall builtin plugins");
-      return;
-    }
-
-    if (!confirm(`Uninstall ${plugin.name}?`)) return;
+  const handleDelete = async (plugin: Plugin) => {
+    if (plugin.is_builtin) return;
+    if (!confirm(`Unload ${plugin.name}? The plugin files will remain on disk.`)) return;
 
     try {
-      await pluginApi.uninstallPlugin(plugin.id);
+      await pluginApi.unloadPlugin(plugin.id);
       setPlugins((prev) => prev.filter((p) => p.id !== plugin.id));
     } catch (err) {
-      console.error("Failed to uninstall plugin:", err);
+      console.error("Failed to unload plugin:", err);
     }
   };
+
+  const builtinPlugins = plugins.filter((p) => p.is_builtin);
+  const communityPlugins = plugins.filter((p) => !p.is_builtin);
 
   if (loading) {
     return (
@@ -328,89 +303,63 @@ export default function PluginManagerPage() {
 
   return (
     <div className="flex-1 bg-[#313338] flex flex-col h-full overflow-hidden">
-      <header className="h-12 border-b border-[#1e1f22] px-4 flex items-center shadow-sm bg-[#313338] flex-shrink-0">
+      <header className="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm bg-[#313338] flex-shrink-0">
         <h2 className="font-bold text-white flex items-center gap-2 text-[15px]">
           <Puzzle size={20} className="text-[#f23f43]" /> Bots & Plugins
         </h2>
+        <button
+          onClick={fetchPlugins}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#949ba4] hover:text-white hover:bg-[#35373c] rounded transition-colors"
+        >
+          <RefreshCw size={14} /> Refresh
+        </button>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-6 space-y-6">
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[#949ba4] text-xs font-bold uppercase tracking-wider">Installed Plugins</h3>
-            <button
-              onClick={() => setShowInstallModal(true)}
-              className="px-4 py-2 bg-[#5865f2] hover:bg-[#4752c4] text-white text-sm font-bold rounded-md transition-colors"
-            >
-              Install Plugin
-            </button>
-          </div>
+      <main className="flex-1 overflow-y-auto p-6">
+        <PluginListSection
+          title="Built-in Plugins"
+          plugins={builtinPlugins}
+          onToggle={handleToggle}
+          onConfigure={setConfiguringPlugin}
+          onDelete={handleDelete}
+        />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {plugins.map((plugin) => (
-              <div key={plugin.id} className="bg-[#2b2d31] p-4 rounded-lg border border-[#1e1f22] flex flex-col gap-3 transition-transform hover:translate-y-[-2px] hover:shadow-lg">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="font-bold text-white">{plugin.name}</h4>
-                    <p className="text-xs text-[#949ba4]">{plugin.description || "No description"}</p>
-                  </div>
-                  <div className="w-10 h-10 bg-[#35373c] rounded-lg flex items-center justify-center text-xl shadow-inner">
-                    {plugin.entry_point.includes("math") ? <Calculator size={20} className="text-[#5865f2]" /> :
-                     plugin.entry_point.includes("summary") ? <FileText size={20} className="text-[#23a559]" /> :
-                     <Zap size={20} className="text-[#f23f43]" />}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#1e1f22]">
-                  <span className={`text-[10px] font-bold uppercase ${plugin.is_enabled ? "text-[#23a559]" : "text-gray-500"}`}>
-                    {plugin.is_enabled ? "Active" : "Disabled"}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {plugin.config_schema && plugin.config_schema.length > 0 && (
-                      <button
-                        onClick={() => setConfiguringPlugin(plugin)}
-                        className="px-3 py-1 text-[11px] text-[#949ba4] hover:text-white hover:bg-[#35373c] rounded transition-colors"
-                      >
-                        Configure
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleToggle(plugin)}
-                      className={`px-3 py-1 rounded text-xs font-bold transition-all
-                        ${plugin.is_enabled
-                          ? "bg-red-500 hover:bg-red-600 text-white shadow-[0_4px_0_rgba(153,27,27,1)] active:translate-y-[2px] active:shadow-none"
-                          : "bg-[#5865f2] hover:bg-[#4752c4] text-white shadow-[0_4px_0_rgba(67,56,202,1)] active:translate-y-[2px] active:shadow-none"}`}
-                    >
-                      {plugin.is_enabled ? "Disable" : "Enable"}
-                    </button>
-                    {!plugin.is_builtin && (
-                      <button
-                        onClick={() => handleUninstall(plugin)}
-                        className="p-1 text-[#949ba4] hover:text-red-400 transition-colors"
-                        title="Uninstall"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <PluginListSection
+          title="Community Plugins"
+          plugins={communityPlugins}
+          onToggle={handleToggle}
+          onConfigure={setConfiguringPlugin}
+          onDelete={handleDelete}
+        />
 
-        <section className="bg-[#1e1f22] p-8 rounded-lg border-2 border-dashed border-[#2b2d31] flex flex-col items-center justify-center text-center transition-colors hover:border-[#3f4147]">
-          <div className="w-16 h-16 bg-[#2b2d31] rounded-full flex items-center justify-center mb-4 shadow-xl">
-            <Construction size={32} className="text-orange-500" />
+        {plugins.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-[#949ba4] text-sm">No plugins found.</p>
+            <p className="text-[#949ba4] text-xs mt-1">
+              Place plugin folders in the plugins directory or use the Developer Console.
+            </p>
           </div>
-          <h3 className="font-bold text-white text-lg mb-2">Create Your Own Bot</h3>
-          <p className="text-sm text-[#949ba4] max-w-sm mb-6 leading-relaxed">
-            Write custom plugins using our lightweight API to automate your study workflow or integrate external tools.
-          </p>
-          <button className="bg-white text-black font-bold px-8 py-2.5 rounded hover:bg-gray-200 transition-all active:scale-95 shadow-lg">
-            Developer Console
-          </button>
+        )}
+
+        <section className="mt-8 bg-[#2b2d31] p-6 rounded-lg border border-[#1e1f22]">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 bg-[#35373c] rounded-lg flex items-center justify-center shrink-0">
+              <Code2 size={20} className="text-[#5865f2]" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-white text-sm mb-1">Developer Console</h3>
+              <p className="text-xs text-[#949ba4] mb-4 leading-relaxed">
+                Write, test, and deploy custom plugins using our lightweight API.
+                Built-in plugin templates are available as references.
+              </p>
+              <button
+                onClick={() => setShowDevConsole(true)}
+                className="px-4 py-2 bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-bold rounded-md transition-colors"
+              >
+                Open Developer Console
+              </button>
+            </div>
+          </div>
         </section>
       </main>
 
@@ -422,11 +371,10 @@ export default function PluginManagerPage() {
         />
       )}
 
-      {showInstallModal && (
-        <InstallPluginModal
-          builtinPlugins={builtinPlugins}
-          onInstall={handleInstall}
-          onClose={() => setShowInstallModal(false)}
+      {showDevConsole && (
+        <PluginDevConsole
+          onClose={() => setShowDevConsole(false)}
+          onDeployed={fetchPlugins}
         />
       )}
     </div>

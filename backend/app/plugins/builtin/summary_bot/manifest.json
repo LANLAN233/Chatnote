@@ -1,0 +1,8 @@
+{
+  "id": "summary-bot",
+  "name": "Summary Bot",
+  "version": "1.0.0",
+  "description": "自动为长文本生成摘要，提取关键信息",
+  "author": "ChatNote",
+  "min_app_version": "1.0.0"
+}

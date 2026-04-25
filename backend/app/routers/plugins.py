@@ -1,8 +1,10 @@
-"""Plugin management API routes."""
+"""Plugin management API routes (Obsidian-style folder-based)."""
 
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,34 +13,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.models import Plugin, User
-from app.plugins import PluginManager, plugin_manager
+from app.plugins import plugin_manager
+from app.plugins.loader import (
+    DATA_PLUGINS_DIR,
+    PluginManifest,
+    scan_plugin_dirs,
+    sync_plugins_to_db,
+)
+from app.plugins.runtime import PluginSandbox
+from app.routers.auth import get_current_user
 from app.schemas.schemas import (
     ApiResponse,
-    PluginCreate,
+    PluginDeployRequest,
     PluginResponse,
     PluginToggleRequest,
     PluginUpdate,
 )
-from app.routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
-
-
-def _config_to_schema(config_list: list[dict[str, Any]] | None) -> str | None:
-    """Convert config schema list to JSON string."""
-    if config_list is None:
-        return None
-    return json.dumps(config_list)
-
-
-def _schema_to_config(config_str: str | None) -> list[dict[str, Any]] | None:
-    """Convert JSON string to config schema list."""
-    if config_str is None:
-        return None
-    try:
-        return json.loads(config_str)
-    except json.JSONDecodeError:
-        return None
 
 
 def _config_to_dict(config_str: str | None) -> dict[str, Any] | None:
@@ -58,137 +50,63 @@ def _dict_to_config(config_dict: dict[str, Any] | None) -> str | None:
     return json.dumps(config_dict)
 
 
+async def _build_plugin_responses(db: AsyncSession) -> list[dict[str, Any]]:
+    """Build plugin response list by combining DB state + manifest data."""
+    # Ensure runtime is in sync with DB (manifest data comes from runtime)
+    result = await db.execute(select(Plugin))
+    db_records = result.scalars().all()
+
+    responses = []
+    for record in db_records:
+        instance = plugin_manager.get_plugin(record.plugin_id)
+
+        # Get metadata from runtime instance (which came from manifest)
+        name = record.plugin_id
+        version = "1.0.0"
+        description = None
+        author = None
+        config_schema = None
+
+        if instance:
+            name = instance.name or record.plugin_id
+            version = instance.version or "1.0.0"
+            description = instance.instance.description or None
+            author = instance.instance.author or None
+            config_schema = instance.instance.get_config_schema()
+
+        responses.append(
+            {
+                "id": record.id,
+                "plugin_id": record.plugin_id,
+                "name": name,
+                "version": version,
+                "description": description,
+                "author": author,
+                "config_schema": config_schema,
+                "config": _config_to_dict(record.config),
+                "is_enabled": record.is_enabled,
+                "is_builtin": record.is_builtin,
+                "installed_at": record.installed_at,
+                "updated_at": record.updated_at,
+            }
+        )
+
+    return responses
+
+
 @router.get("", response_model=ApiResponse)
 async def list_plugins(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get all installed plugins."""
-    result = await db.execute(select(Plugin))
-    plugins = result.scalars().all()
+    """Scan plugin directories and return all discovered plugins.
 
-    plugin_responses = []
-    for plugin in plugins:
-        loaded = plugin_manager.get_plugin_by_id(plugin.id)
-        plugin_responses.append({
-            "id": plugin.id,
-            "name": plugin.name,
-            "version": plugin.version,
-            "description": plugin.description,
-            "author": plugin.author,
-            "entry_point": plugin.entry_point,
-            "config_schema": _schema_to_config(plugin.config_schema),
-            "config": _config_to_dict(plugin.config),
-            "is_enabled": plugin.is_enabled if loaded is None else loaded.enabled,
-            "is_builtin": plugin.is_builtin,
-            "installed_at": plugin.installed_at,
-            "updated_at": plugin.updated_at,
-        })
-
+    This triggers a fresh scan of PLUGIN_DIRS, syncs to DB, and returns
+    the combined manifest + DB state for each plugin.
+    """
+    await plugin_manager.scan_plugins(db)
+    plugin_responses = await _build_plugin_responses(db)
     return {"success": True, "data": plugin_responses}
-
-
-@router.post("", response_model=ApiResponse)
-async def create_plugin(
-    plugin_data: PluginCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Install a new plugin."""
-    # Validate entry point exists
-    from app.plugins.runtime import PluginSandbox
-
-    # Try to load the plugin
-    success, error = plugin_manager.load_plugin_from_db(
-        0, plugin_data.entry_point, plugin_data.config or {}
-    )
-    if not success:
-        raise HTTPException(status_code=400, detail=f"Failed to load plugin: {error}")
-
-    # Get plugin info from loaded instance
-    loaded = plugin_manager.get_plugin(
-        plugin_data.entry_point.split(".")[-1]
-    ) or plugin_manager.get_plugin(plugin_data.name)
-
-    # Create database record
-    db_plugin = Plugin(
-        name=plugin_data.name,
-        version=plugin_data.version,
-        description=plugin_data.description,
-        author=plugin_data.author,
-        entry_point=plugin_data.entry_point,
-        config_schema=_config_to_schema(plugin_data.config_schema),
-        config=_dict_to_config(plugin_data.config),
-        is_builtin=plugin_data.is_builtin,
-        is_enabled=True,
-    )
-    db.add(db_plugin)
-    await db.commit()
-    await db.refresh(db_plugin)
-
-    # Reload with correct ID
-    plugin_manager.unload_plugin(plugin_data.name)
-    plugin_manager.load_plugin_from_db(db_plugin.id, plugin_data.entry_point, plugin_data.config or {})
-
-    return {
-        "success": True,
-        "data": {
-            "id": db_plugin.id,
-            "name": db_plugin.name,
-            "version": db_plugin.version,
-            "description": db_plugin.description,
-            "author": db_plugin.author,
-            "entry_point": db_plugin.entry_point,
-            "config_schema": _schema_to_config(db_plugin.config_schema),
-            "config": _config_to_dict(db_plugin.config),
-            "is_enabled": db_plugin.is_enabled,
-            "is_builtin": db_plugin.is_builtin,
-            "installed_at": db_plugin.installed_at,
-            "updated_at": db_plugin.updated_at,
-        },
-        "message": "Plugin installed successfully",
-    }
-
-
-@router.get("/builtin", response_model=ApiResponse)
-async def list_builtin_plugins(
-    current_user: User = Depends(get_current_user),
-):
-    """Get all available builtin plugins."""
-    from app.plugins.builtin import (
-        ClassWatcherPlugin,
-        MathSolverPlugin,
-        SummaryBotPlugin,
-    )
-
-    builtin_plugins = [
-        {
-            "name": MathSolverPlugin.name,
-            "version": MathSolverPlugin.version,
-            "description": MathSolverPlugin.description,
-            "author": MathSolverPlugin.author,
-            "entry_point": f"{MathSolverPlugin.__module__}.{MathSolverPlugin.__name__}",
-            "config_schema": MathSolverPlugin().get_config_schema(),
-        },
-        {
-            "name": SummaryBotPlugin.name,
-            "version": SummaryBotPlugin.version,
-            "description": SummaryBotPlugin.description,
-            "author": SummaryBotPlugin.author,
-            "entry_point": f"{SummaryBotPlugin.__module__}.{SummaryBotPlugin.__name__}",
-            "config_schema": SummaryBotPlugin().get_config_schema(),
-        },
-        {
-            "name": ClassWatcherPlugin.name,
-            "version": ClassWatcherPlugin.version,
-            "description": ClassWatcherPlugin.description,
-            "author": ClassWatcherPlugin.author,
-            "entry_point": f"{ClassWatcherPlugin.__module__}.{ClassWatcherPlugin.__name__}",
-            "config_schema": ClassWatcherPlugin().get_config_schema(),
-        },
-    ]
-
-    return {"success": True, "data": builtin_plugins}
 
 
 @router.put("/{plugin_id}", response_model=ApiResponse)
@@ -200,54 +118,56 @@ async def update_plugin(
 ):
     """Update plugin configuration."""
     result = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
-    plugin = result.scalar_one_or_none()
+    record = result.scalar_one_or_none()
 
-    if not plugin:
+    if not record:
         raise HTTPException(status_code=404, detail="Plugin not found")
 
-    # Update fields
-    if plugin_data.name is not None:
-        plugin.name = plugin_data.name
-    if plugin_data.version is not None:
-        plugin.version = plugin_data.version
-    if plugin_data.description is not None:
-        plugin.description = plugin_data.description
-    if plugin_data.author is not None:
-        plugin.author = plugin_data.author
     if plugin_data.config is not None:
-        plugin.config = _dict_to_config(plugin_data.config)
+        record.config = _dict_to_config(plugin_data.config)
+
     if plugin_data.is_enabled is not None:
-        plugin.is_enabled = plugin_data.is_enabled
-
-    await db.commit()
-    await db.refresh(plugin)
-
-    # Update runtime instance
-    instance = plugin_manager.get_plugin_by_id(plugin_id)
-    if instance:
-        if plugin_data.config is not None:
-            instance.instance.config = plugin_data.config
-        if plugin_data.is_enabled is not None:
+        record.is_enabled = plugin_data.is_enabled
+        # Update runtime instance
+        instance = plugin_manager.get_plugin(record.plugin_id)
+        if instance:
             if plugin_data.is_enabled:
                 instance.enable()
             else:
                 instance.disable()
 
+    await db.commit()
+    await db.refresh(record)
+
+    # Rebuild single response
+    instance = plugin_manager.get_plugin(record.plugin_id)
+    name = record.plugin_id
+    version = "1.0.0"
+    description = None
+    author = None
+    config_schema = None
+    if instance:
+        name = instance.name or record.plugin_id
+        version = instance.version or "1.0.0"
+        description = instance.instance.description or None
+        author = instance.instance.author or None
+        config_schema = instance.instance.get_config_schema()
+
     return {
         "success": True,
         "data": {
-            "id": plugin.id,
-            "name": plugin.name,
-            "version": plugin.version,
-            "description": plugin.description,
-            "author": plugin.author,
-            "entry_point": plugin.entry_point,
-            "config_schema": _schema_to_config(plugin.config_schema),
-            "config": _config_to_dict(plugin.config),
-            "is_enabled": plugin.is_enabled,
-            "is_builtin": plugin.is_builtin,
-            "installed_at": plugin.installed_at,
-            "updated_at": plugin.updated_at,
+            "id": record.id,
+            "plugin_id": record.plugin_id,
+            "name": name,
+            "version": version,
+            "description": description,
+            "author": author,
+            "config_schema": config_schema,
+            "config": _config_to_dict(record.config),
+            "is_enabled": record.is_enabled,
+            "is_builtin": record.is_builtin,
+            "installed_at": record.installed_at,
+            "updated_at": record.updated_at,
         },
         "message": "Plugin updated successfully",
     }
@@ -262,16 +182,16 @@ async def toggle_plugin(
 ):
     """Enable or disable a plugin."""
     result = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
-    plugin = result.scalar_one_or_none()
+    record = result.scalar_one_or_none()
 
-    if not plugin:
+    if not record:
         raise HTTPException(status_code=404, detail="Plugin not found")
 
-    plugin.is_enabled = toggle_data.is_enabled
+    record.is_enabled = toggle_data.is_enabled
     await db.commit()
 
     # Update runtime
-    instance = plugin_manager.get_plugin_by_id(plugin_id)
+    instance = plugin_manager.get_plugin(record.plugin_id)
     if instance:
         if toggle_data.is_enabled:
             instance.enable()
@@ -291,26 +211,24 @@ async def delete_plugin(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Uninstall a plugin."""
-    result = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
-    plugin = result.scalar_one_or_none()
+    """Unload a plugin from runtime and DB.
 
-    if not plugin:
+    Does NOT delete the plugin folder from the filesystem.
+    """
+    result = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
+    record = result.scalar_one_or_none()
+
+    if not record:
         raise HTTPException(status_code=404, detail="Plugin not found")
 
-    if plugin.is_builtin:
-        raise HTTPException(status_code=400, detail="Cannot uninstall builtin plugins")
-
     # Unload from runtime
-    instance = plugin_manager.get_plugin_by_id(plugin_id)
-    if instance:
-        plugin_manager.unload_plugin(instance.name)
+    plugin_manager.unload_plugin(record.plugin_id)
 
     # Delete from database
-    await db.delete(plugin)
+    await db.delete(record)
     await db.commit()
 
-    return {"success": True, "message": "Plugin uninstalled successfully"}
+    return {"success": True, "message": "Plugin unloaded successfully"}
 
 
 @router.post("/{plugin_id}/test", response_model=ApiResponse)
@@ -320,7 +238,7 @@ async def test_plugin(
     current_user: User = Depends(get_current_user),
 ):
     """Test a plugin with a message."""
-    instance = plugin_manager.get_plugin_by_id(plugin_id)
+    instance = plugin_manager.get_plugin_by_db_id(plugin_id)
 
     if not instance:
         raise HTTPException(status_code=404, detail="Plugin not found or not loaded")
@@ -331,4 +249,83 @@ async def test_plugin(
     return {
         "success": True,
         "data": {"response": response},
+    }
+
+
+@router.post("/deploy", response_model=ApiResponse)
+async def deploy_plugin(
+    deploy_data: PluginDeployRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Deploy a plugin from developer console.
+
+    Creates/overwrites a plugin folder in data/plugins/{id}/
+    with manifest.json and main.py, then scans and loads it.
+    """
+    # Validate manifest
+    manifest = PluginManifest(
+        id=deploy_data.id,
+        name=deploy_data.manifest.name,
+        version=deploy_data.manifest.version,
+        description=deploy_data.manifest.description or "",
+        author=deploy_data.manifest.author or "",
+        min_app_version=deploy_data.manifest.min_app_version or "",
+    )
+    valid, err = manifest.validate()
+    if not valid:
+        raise HTTPException(status_code=400, detail=f"Invalid manifest: {err}")
+
+    # Validate code
+    ok, msg = PluginSandbox.validate_code(deploy_data.code)
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Code validation failed: {msg}")
+
+    # Ensure data/plugins directory exists
+    DATA_PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+
+    plugin_dir = DATA_PLUGINS_DIR / deploy_data.id
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write manifest.json
+    manifest_path = plugin_dir / "manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "id": manifest.id,
+                "name": manifest.name,
+                "version": manifest.version,
+                "description": manifest.description,
+                "author": manifest.author,
+                "min_app_version": manifest.min_app_version,
+            },
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    # Write main.py
+    main_path = plugin_dir / "main.py"
+    with open(main_path, "w", encoding="utf-8") as f:
+        f.write(deploy_data.code)
+
+    # Scan and sync to DB
+    await plugin_manager.scan_plugins(db)
+
+    # Find the newly created plugin record
+    result = await db.execute(select(Plugin).where(Plugin.plugin_id == deploy_data.id))
+    record = result.scalar_one_or_none()
+
+    if not record:
+        raise HTTPException(status_code=500, detail="Plugin deployed but failed to load")
+
+    return {
+        "success": True,
+        "data": {
+            "id": record.id,
+            "plugin_id": record.plugin_id,
+            "is_enabled": record.is_enabled,
+            "source_path": str(plugin_dir),
+        },
+        "message": "Plugin deployed successfully. Enable it in the plugin list.",
     }

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.database import init_db
+from app.database import async_session, init_db
 from app.logging_config import setup_logging
 from app.plugins import plugin_manager
 from app.routers import ai, attachments, auth, channels, console, export, notes, plugins, schedules, servers
@@ -18,8 +18,9 @@ from app.routers import websocket as ws_router
 async def lifespan(app: FastAPI):
     setup_logging(settings.DEBUG)
     await init_db()
-    # Load builtin plugins
-    plugin_manager.load_builtin_plugins()
+    # Scan and load all plugins (builtin + community)
+    async with async_session() as db:
+        await plugin_manager.scan_plugins(db)
     yield
 
 

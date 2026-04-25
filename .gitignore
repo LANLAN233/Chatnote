@@ -20,3 +20,5 @@ frontend/.vite/
 .idea/
 *.swp
 *.swo
+/backend/uploads/temp
+/backend/data/
