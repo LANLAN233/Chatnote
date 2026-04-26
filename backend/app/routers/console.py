@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.console_agent import execute_command
 from app.database import get_db
 from app.models.models import Server, User
 from app.plugins import plugin_manager
 from app.routers.ai import smart_create_note
 from app.routers.auth import get_current_user
 from app.schemas.schemas import ApiResponse, ConsoleExecuteRequest, NoteCreateWithClassify
-from app.services.console import execute_command
 from app.services.parser import parse_input
 
 router = APIRouter(tags=["console"])

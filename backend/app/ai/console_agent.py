@@ -1,9 +1,23 @@
+"""Console agent — command routing and execution.
+
+For simple, deterministic commands (/help, /clear, /search, etc.),
+we keep direct routing. The Agno Agent is used for smart classification
+and natural language understanding when needed.
+"""
+
 import logging
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.tools import (
+    dispatch_plugin_command,
+    get_plugins_status_tool,
+    get_stats_tool,
+    get_today_schedules_tool,
+    search_notes_tool,
+)
 from app.models.models import Channel, Note, Server
 from app.plugins import plugin_manager
 
@@ -32,32 +46,19 @@ async def handle_search(args: str, db: AsyncSession, user_id: int) -> dict[str, 
     if not args.strip():
         return {"type": "text", "content": "Usage: /search <keyword>"}
 
-    result = await db.execute(
-        select(Note)
-        .where(Note.user_id == user_id, Note.content.ilike(f"%{args}%"))
-        .order_by(Note.created_at.desc())
-        .limit(20)
-    )
-    notes = result.scalars().all()
+    result_raw = await search_notes_tool(args, user_id, db)
+    import json
+    data = json.loads(result_raw)
+    found = data.get("found", 0)
+    results = data.get("results", [])
 
-    if not notes:
+    if not results:
         return {"type": "text", "content": f"No results found for '{args}'"}
 
-    note_ids = [n.channel_id for n in notes]
-    ch_result = await db.execute(select(Channel).where(Channel.id.in_(note_ids)))
-    channels = {c.id: c for c in ch_result.scalars().all()}
-
-    server_ids = [c.server_id for c in channels.values()]
-    srv_result = await db.execute(select(Server).where(Server.id.in_(server_ids)))
-    servers = {s.id: s for s in srv_result.scalars().all()}
-
-    lines = [f"Found {len(notes)} results for '{args}':\n"]
-    for n in notes:
-        ch = channels.get(n.channel_id)
-        srv = servers.get(ch.server_id) if ch else None
-        location = f"@{srv.name} #{ch.name}" if srv and ch else ""
-        preview = n.content[:80].replace("\n", " ")
-        lines.append(f"  [{location}] {preview}...")
+    lines = [f"Found {found} results for '{args}':\n"]
+    for r in results:
+        location = f"@{r['server']} #{r['channel']}" if r.get("server") else ""
+        lines.append(f"  [{location}] {r['preview']}...")
 
     return {"type": "text", "content": "\n".join(lines)}
 
@@ -110,88 +111,76 @@ async def handle_todo(args: str, db: AsyncSession, user_id: int) -> dict[str, An
 
 
 async def handle_today(args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
-    from datetime import datetime, timezone
+    import json as _json
+    result_raw = await get_today_schedules_tool(user_id, db)
+    data = _json.loads(result_raw)
 
-    today = datetime.now(timezone.utc).date()
-    result = await db.execute(
-        select(Note)
-        .where(Note.user_id == user_id)
-        .order_by(Note.created_at.desc())
-        .limit(20)
-    )
-    notes = result.scalars().all()
+    if not data:
+        return {"type": "text", "content": "No activity recorded yet."}
 
-    today_notes = [n for n in notes if n.created_at.date() == today]
-
-    count_result = await db.execute(
-        select(func.count()).select_from(Note).where(Note.user_id == user_id)
-    )
-    total = count_result.scalar() or 0
-
+    item = data[0]
     lines = [
-        f"Today's Activity ({today.isoformat()}):",
-        f"  Notes today: {len(today_notes)}",
-        f"  Total notes: {total}",
+        f"Today's Activity ({item['date']}):",
+        f"  Notes today: {item['notes_today']}",
+        f"  Total notes: {item['total_notes']}",
     ]
-
-    if today_notes:
-        lines.append("\nToday's notes:")
-        for n in today_notes[:5]:
-            preview = n.content[:60].replace("\n", " ")
-            lines.append(f"  - {preview}")
+    recent = item.get("recent", [])
+    if recent:
+        lines.append("\nRecent notes:")
+        for n in recent[:5]:
+            lines.append(f"  - {n['preview']}")
 
     return {"type": "text", "content": "\n".join(lines)}
 
 
 async def handle_stats(args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
-    note_count = await db.execute(select(func.count()).select_from(Note).where(Note.user_id == user_id))
-    server_count = await db.execute(select(func.count()).select_from(Server).where(Server.user_id == user_id))
-    channel_count = await db.execute(
-        select(func.count())
-        .select_from(Channel)
-        .join(Server, Channel.server_id == Server.id)
-        .where(Server.user_id == user_id)
-    )
+    import json as _json
+    result_raw = await get_stats_tool(user_id, db)
+    stats = _json.loads(result_raw)
 
     lines = [
         "Statistics:",
-        f"  Servers: {server_count.scalar() or 0}",
-        f"  Channels: {channel_count.scalar() or 0}",
-        f"  Notes: {note_count.scalar() or 0}",
+        f"  Servers: {stats['servers']}",
+        f"  Channels: {stats['channels']}",
+        f"  Notes: {stats['notes']}",
     ]
     return {"type": "text", "content": "\n".join(lines)}
 
 
 async def handle_plugins(args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
-    """Show plugin status."""
-    plugins = plugin_manager.get_all_plugins()
+    import json as _json
+    result_raw = await get_plugins_status_tool()
+    items = _json.loads(result_raw)
 
-    if not plugins:
+    if not items:
         return {"type": "text", "content": "No plugins installed."}
 
     lines = ["Plugins:"]
-    for plugin in plugins:
-        status = "enabled" if plugin.enabled else "disabled"
-        builtin = " (builtin)" if getattr(plugin.instance, "is_builtin", False) else ""
-        lines.append(f"  {'*' if plugin.enabled else ' '} {plugin.name} v{plugin.version} [{status}]{builtin}")
-        lines.append(f"    {plugin.instance.description or 'No description'}")
+    for p in items:
+        status = "enabled" if p["enabled"] else "disabled"
+        builtin = " (builtin)" if p.get("is_builtin") else ""
+        star = "*" if p["enabled"] else " "
+        lines.append(f"  {star} {p['name']} v{p['version']} [{status}]{builtin}")
+        desc = p.get("description", "")
+        if desc:
+            lines.append(f"    {desc}")
 
     lines.append("\nType /calc <expression> to use Math Solver")
     return {"type": "text", "content": "\n".join(lines)}
 
 
 async def handle_calc(args: str, db: AsyncSession, user_id: int) -> dict[str, Any]:
-    """Handle /calc command via Math Solver plugin."""
     if not args.strip():
-        return {"type": "text", "content": "Usage: /calc <expression>  e.g., /calc 2 + 2 * 3"}
+        return {"type": "text", "content": "Usage: /calc <expression>"}
 
-    # Dispatch to plugins
-    responses = await plugin_manager.dispatch_command("calc", args.split(), {"user_id": user_id})
+    responses = await plugin_manager.dispatch_command(
+        "calc", args.split(), {"user_id": user_id}
+    )
 
     if responses:
         return {
             "type": "plugin_response",
-            "content": responses[0]["message"],
+            "content": responses[0].get("message", ""),
             "data": {"plugin_responses": responses},
         }
 
@@ -219,20 +208,22 @@ async def execute_command(
 ) -> dict[str, Any]:
     handler = COMMAND_REGISTRY.get(command)
     if not handler:
-        # Try to dispatch to plugins
         ctx: dict[str, Any] = {"user_id": user_id}
         if server_context:
             ctx.update(server_context)
-        responses = await plugin_manager.dispatch_command(command, args.split(), ctx)
+        responses = await plugin_manager.dispatch_command(
+            command, args.split(), ctx
+        )
         if responses:
             return {
                 "type": "plugin_response",
-                "content": "\n".join([r["message"] for r in responses]),
+                "content": "\n".join(
+                    [r.get("message", r.get("response", str(r))) for r in responses]
+                ),
                 "data": {"plugin_responses": responses},
             }
         return {
             "type": "error",
             "content": f"Unknown command: /{command}\nType /help to see available commands.",
         }
-    # For now, scoped commands reuse the same handlers; search/todo can be enhanced later
     return await handler(args, db, user_id)

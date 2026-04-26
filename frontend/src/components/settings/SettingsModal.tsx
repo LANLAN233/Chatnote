@@ -63,7 +63,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   // Form states
   const [displayName, setDisplayName] = useState("");
-  const [llmProvider, setLlmProvider] = useState("zhipu");
+  const [llmProvider, setLlmProvider] = useState("deepseek");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [theme, setTheme] = useState("dark");
 
@@ -75,7 +75,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   useEffect(() => {
     if (user) {
       setDisplayName(user.display_name || "");
-      setLlmProvider(user.preferred_llm || "zhipu");
+      setLlmProvider(user.preferred_llm || "deepseek");
       setNotificationsEnabled(user.notifications_enabled ?? true);
       setTheme(user.theme || "dark");
     }
@@ -350,9 +350,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     onChange={(e) => setLlmProvider(e.target.value)}
                     className="w-full px-4 py-2.5 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
                   >
+                    <option value="deepseek">DeepSeek（推荐）</option>
                     <option value="zhipu">智谱 AI</option>
-                    <option value="openai">OpenAI</option>
                     <option value="qwen">通义千问</option>
+                    <option value="openai">OpenAI</option>
                     <option value="mock">模拟模式（演示）</option>
                   </select>
                   <p className="text-xs text-[#949ba4] mt-2">

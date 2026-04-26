@@ -195,17 +195,17 @@ async def list_providers():
         data={
             "providers": [
                 {
-                    "id": "openai",
-                    "name": "OpenAI",
-                    "default_model": "gpt-4o",
-                    "text_model": "gpt-3.5-turbo",
-                    "vision_model": "gpt-4o",
-                    "base_url": "https://api.openai.com/v1",
+                    "id": "deepseek",
+                    "name": "DeepSeek (推荐)",
+                    "default_model": "deepseek-chat",
+                    "text_model": "deepseek-chat",
+                    "vision_model": "deepseek-chat",
+                    "base_url": "https://api.deepseek.com/v1",
                 },
                 {
                     "id": "zhipu",
                     "name": "智谱 AI",
-                    "default_model": "glm-4v",
+                    "default_model": "glm-4-flash",
                     "text_model": "glm-4-flash",
                     "vision_model": "glm-4v",
                     "base_url": "https://open.bigmodel.cn/api/paas/v4",
@@ -213,10 +213,18 @@ async def list_providers():
                 {
                     "id": "qwen",
                     "name": "通义千问",
-                    "default_model": "qwen-vl-max",
+                    "default_model": "qwen-turbo",
                     "text_model": "qwen-turbo",
                     "vision_model": "qwen-vl-max",
                     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                },
+                {
+                    "id": "openai",
+                    "name": "OpenAI",
+                    "default_model": "gpt-3.5-turbo",
+                    "text_model": "gpt-3.5-turbo",
+                    "vision_model": "gpt-4o",
+                    "base_url": "https://api.openai.com/v1",
                 },
                 {
                     "id": "mock",

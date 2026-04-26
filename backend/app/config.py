@@ -16,9 +16,9 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = "./uploads"
 
-    LLM_PROVIDER: str = "zhipu"
-    LLM_API_KEY: str = "a85689a74b514677b7068397e1f0df96.iyKySHTSMFZFYWMQ"
-    LLM_MODEL: str = "glm-4"
+    LLM_PROVIDER: str = "deepseek"
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = "deepseek-chat"
     LLM_BASE_URL: str = ""
 
     ENCRYPTION_KEY: str = ""

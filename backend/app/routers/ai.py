@@ -1,7 +1,10 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.classification import classify_note, resolve_classification
 from app.database import get_db
 from app.models.models import Channel, Note, Server, User
 from app.routers.auth import get_current_user
@@ -13,10 +16,9 @@ from app.schemas.schemas import (
     NoteResponse,
     ScheduleImportRequest,
 )
-from app.services.classifier import classify_note, resolve_classification
-from app.services.llm import LLMService
 from app.services.parser import parse_input
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["ai"])
 
 
@@ -26,11 +28,7 @@ async def ai_classify(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await classify_note(
-        req.content, db, current_user.id,
-        llm_provider=current_user.preferred_llm,
-        api_key=current_user.api_key_encrypted or None,
-    )
+    result = await classify_note(req.content, db, current_user.id)
     return ApiResponse(success=True, data=result)
 
 
@@ -53,7 +51,10 @@ async def smart_create_note(
     if parsed.server_name or parsed.channel_name:
         if parsed.server_name:
             srv_result = await db.execute(
-                select(Server).where(Server.name == parsed.server_name, Server.user_id == current_user.id)
+                select(Server).where(
+                    Server.name == parsed.server_name,
+                    Server.user_id == current_user.id,
+                )
             )
             server = srv_result.scalar_one_or_none()
             if not server:
@@ -64,7 +65,10 @@ async def smart_create_note(
             server_id = server.id
         else:
             srv_result = await db.execute(
-                select(Server).where(Server.user_id == current_user.id).order_by(Server.sort_order).limit(1)
+                select(Server)
+                .where(Server.user_id == current_user.id)
+                .order_by(Server.sort_order)
+                .limit(1)
             )
             server = srv_result.scalar_one_or_none()
             if server:
@@ -72,7 +76,10 @@ async def smart_create_note(
 
         if parsed.channel_name and server_id:
             ch_result = await db.execute(
-                select(Channel).where(Channel.server_id == server_id, Channel.name == parsed.channel_name)
+                select(Channel).where(
+                    Channel.server_id == server_id,
+                    Channel.name == parsed.channel_name,
+                )
             )
             channel = ch_result.scalar_one_or_none()
             if not channel:
@@ -83,7 +90,10 @@ async def smart_create_note(
             channel_id = channel.id
         elif server_id:
             ch_result = await db.execute(
-                select(Channel).where(Channel.server_id == server_id).order_by(Channel.sort_order).limit(1)
+                select(Channel)
+                .where(Channel.server_id == server_id)
+                .order_by(Channel.sort_order)
+                .limit(1)
             )
             channel = ch_result.scalar_one_or_none()
             if channel:
@@ -91,21 +101,25 @@ async def smart_create_note(
     elif req.auto_classify:
         classification = await classify_note(
             parsed.content, db, current_user.id,
-            llm_provider=current_user.preferred_llm,
-            api_key=current_user.api_key_encrypted or None,
         )
         classification = await resolve_classification(classification, db, current_user.id)
         server_id = classification.get("server_id")
         channel_id = classification.get("channel_id")
     else:
         srv_result = await db.execute(
-            select(Server).where(Server.user_id == current_user.id).order_by(Server.sort_order).limit(1)
+            select(Server)
+            .where(Server.user_id == current_user.id)
+            .order_by(Server.sort_order)
+            .limit(1)
         )
         server = srv_result.scalar_one_or_none()
         if server:
             server_id = server.id
             ch_result = await db.execute(
-                select(Channel).where(Channel.server_id == server.id).order_by(Channel.sort_order).limit(1)
+                select(Channel)
+                .where(Channel.server_id == server.id)
+                .order_by(Channel.sort_order)
+                .limit(1)
             )
             channel = ch_result.scalar_one_or_none()
             if channel:
@@ -177,7 +191,9 @@ async def get_stats(
             "total_servers": server_count.scalar() or 0,
             "total_channels": channel_count.scalar() or 0,
             "total_notes": note_count.scalar() or 0,
-            "recent_notes": [NoteResponse.model_validate(n).model_dump() for n in recent_notes],
+            "recent_notes": [
+                NoteResponse.model_validate(n).model_dump() for n in recent_notes
+            ],
         },
     )
 
@@ -188,27 +204,10 @@ async def import_schedule(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Parse course syllabus / schedule text and return structured suggestions."""
-    # 优先从 user_api_keys 查智谱 key，其次用旧的 api_key_encrypted
-    api_key = current_user.api_key_encrypted
-    provider = current_user.preferred_llm or "zhipu"
+    """Parse course syllabus / schedule text (and optionally image) into structured suggestions."""
+    from app.ai.models import get_model_for_user
+    from app.ai.schedule import parse_schedule_import
 
-    from app.models.models import UserApiKey
-    from app.services.crypto import decrypt
-    key_result = await db.execute(
-        select(UserApiKey).where(
-            UserApiKey.user_id == current_user.id,
-            UserApiKey.provider == "zhipu",
-        )
-    )
-    zhipu_key = key_result.scalar_one_or_none()
-    if zhipu_key:
-        try:
-            api_key = decrypt(zhipu_key.api_key_encrypted)
-            provider = "zhipu"
-        except Exception:
-            pass
-
-    llm_service = LLMService(api_key=api_key or None, provider=provider)
-    result = await llm_service.parse_schedule_import(req.text, req.image_url)
+    model = await get_model_for_user(current_user.id, db, use_vision=bool(req.image_url))
+    result = await parse_schedule_import(req.text, req.image_url, model)
     return ApiResponse(success=True, data=result)

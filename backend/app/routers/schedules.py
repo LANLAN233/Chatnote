@@ -16,7 +16,8 @@ from app.schemas.schemas import (
     ScheduleUpdate,
 )
 from app.routers.auth import get_current_user
-from app.services.llm import LLMService
+from app.ai.models import get_model_for_user
+from app.ai.schedule import parse_natural_language_schedule
 
 router = APIRouter(prefix="/api/schedules", tags=["schedules"])
 
@@ -216,11 +217,54 @@ async def delete_schedule(
 async def parse_schedule_text(
     request: ScheduleParseRequest,
     current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
 ):
     """使用 AI 解析自然语言日程描述"""
-    llm_service = LLMService(
-        api_key=current_user.api_key_encrypted or None,
-        provider=current_user.preferred_llm,
-    )
-    result = await llm_service.parse_schedule(request.text)
-    return result
+    import json as _json
+    from datetime import time as _time
+
+    model = await get_model_for_user(current_user.id, db)
+    result = await parse_natural_language_schedule(request.text, model)
+
+    # Convert types to match ScheduleParseResponse schema
+    start_time = result.get("start_time")
+    if isinstance(start_time, str):
+        try:
+            parts = start_time.split(":")
+            start_time = _time(int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            start_time = _time(9, 0)
+
+    end_time = result.get("end_time")
+    if isinstance(end_time, str):
+        try:
+            parts = end_time.split(":")
+            end_time = _time(int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            end_time = None
+
+    date_val = result.get("date")
+    if isinstance(date_val, str):
+        try:
+            date_val = date.fromisoformat(date_val)
+        except (ValueError, TypeError):
+            date_val = None
+
+    repeat_rule = result.get("repeat_rule")
+    if isinstance(repeat_rule, str):
+        try:
+            repeat_rule = _json.loads(repeat_rule)
+        except (_json.JSONDecodeError, TypeError):
+            repeat_rule = None
+
+    return {
+        "title": result.get("title", request.text[:50]),
+        "description": result.get("description"),
+        "start_time": start_time or _time(9, 0),
+        "end_time": end_time,
+        "date": date_val,
+        "day_of_week": result.get("day_of_week"),
+        "repeat_rule": repeat_rule,
+        "is_all_day": result.get("is_all_day", False),
+        "confidence": result.get("confidence", 0.3),
+    }
