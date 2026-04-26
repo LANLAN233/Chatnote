@@ -9,7 +9,7 @@ from app.config import settings
 from app.database import async_session, init_db
 from app.logging_config import setup_logging
 from app.plugins import plugin_manager
-from app.routers import ai, attachments, auth, channels, console, export, notes, plugins, schedules, servers
+from app.routers import ai, attachments, auth, channels, console, export, files, notes, plugins, schedules, servers
 from app.routers.settings import router as settings_router
 from app.routers import websocket as ws_router
 
@@ -50,6 +50,7 @@ app.include_router(attachments.router)
 app.include_router(export.router)
 app.include_router(settings_router)
 app.include_router(ws_router.router)
+app.include_router(files.router)
 
 # Mount static files for uploads
 upload_dir = Path(settings.UPLOAD_DIR)

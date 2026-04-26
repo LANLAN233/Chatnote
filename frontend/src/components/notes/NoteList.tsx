@@ -7,6 +7,8 @@ import {
 import ReactMarkdown from "react-markdown";
 import { useNoteStore, useChannelStore, useAuthStore } from "../../stores";
 import NoteEditor from "./NoteEditor";
+import MentionHighlight from "../common/MentionHighlight";
+import AttachmentCard from "./AttachmentCard";
 
 /** 同一段消息的最大时间间隔：3 分钟（毫秒） */
 const GROUP_TIME_WINDOW = 3 * 60 * 1000;
@@ -267,7 +269,7 @@ function NoteRow({
             {note.content_type === "markdown" ? (
               <ReactMarkdown>{note.content}</ReactMarkdown>
             ) : (
-              <span>{highlightText(note.content)}</span>
+              <MentionHighlight text={note.content} />
             )}
           </div>
         )}
@@ -276,6 +278,10 @@ function NoteRow({
           <div className="mt-2 text-[12px] bg-[#2b2d31] inline-flex items-center px-2 py-1 rounded border border-[#1e1f22] text-[#949ba4]">
             Categorized as <span className="text-[#23a559] font-bold ml-1">#{note.ai_category}</span>
           </div>
+        )}
+
+        {note.attachments && note.attachments.length > 0 && !isEditing && (
+          <AttachmentCard attachments={note.attachments} />
         )}
       </div>
 

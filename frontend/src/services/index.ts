@@ -86,13 +86,13 @@ export const apiKeyApi = {
 };
 
 export const serverConsoleApi = {
-  execute: (serverId: number, input: string) =>
-    api.post<ApiResponse<ConsoleResult>>(`/server/${serverId}/console/execute`, { input }),
+  execute: (serverId: number, input: string, aiEnabled = false) =>
+    api.post<ApiResponse<ConsoleResult>>(`/server/${serverId}/console/execute`, { input, ai_enabled: aiEnabled }),
 };
 
 export const consoleApi = {
-  execute: (input: string) =>
-    api.post<ApiResponse<ConsoleResult | SmartCreateResult>>("/console/execute", { input }),
+  execute: (input: string, aiEnabled = false) =>
+    api.post<ApiResponse<ConsoleResult | SmartCreateResult>>("/console/execute", { input, ai_enabled: aiEnabled }),
 };
 
 export const statsApi = {

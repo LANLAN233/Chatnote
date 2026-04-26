@@ -162,6 +162,7 @@ class ClassifyResponse(BaseModel):
 
 class ConsoleExecuteRequest(BaseModel):
     input: str = Field(..., min_length=1)
+    ai_enabled: bool = False
 
 
 class ConsoleExecuteResponse(BaseModel):

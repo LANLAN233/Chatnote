@@ -56,6 +56,7 @@ export interface Note {
   is_edited: boolean;
   created_at: string;
   updated_at: string;
+  attachments?: Attachment[];
 }
 
 export interface NoteList {
