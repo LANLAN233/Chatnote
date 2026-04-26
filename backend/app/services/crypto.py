@@ -8,6 +8,34 @@ logger = logging.getLogger(__name__)
 
 _ENCRYPTION_KEY: bytes | None = None
 
+# Path to persist auto-generated key (relative to project root)
+_KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", ".encryption_key")
+
+
+def _load_key_from_file() -> bytes | None:
+    """Load a previously persisted encryption key from disk."""
+    try:
+        if os.path.exists(_KEY_FILE_PATH):
+            with open(_KEY_FILE_PATH, "rb") as f:
+                key = f.read().strip()
+                # Validate it's a valid Fernet key (32 bytes raw, 44 bytes base64)
+                decoded = base64.urlsafe_b64decode(key)
+                if len(decoded) == 32:
+                    return key
+    except Exception:
+        pass
+    return None
+
+
+def _save_key_to_file(key: bytes) -> None:
+    """Persist the encryption key to disk so it survives restarts."""
+    try:
+        os.makedirs(os.path.dirname(_KEY_FILE_PATH), exist_ok=True)
+        with open(_KEY_FILE_PATH, "wb") as f:
+            f.write(key)
+    except Exception as e:
+        logger.warning("Failed to persist encryption key to %s: %s", _KEY_FILE_PATH, e)
+
 
 def _get_or_create_key() -> bytes:
     global _ENCRYPTION_KEY
@@ -24,13 +52,22 @@ def _get_or_create_key() -> bytes:
         except Exception:
             pass
 
-    # Fallback: generate a random key and log a warning
+    # Try to load a previously persisted key
+    persisted = _load_key_from_file()
+    if persisted:
+        _ENCRYPTION_KEY = persisted
+        logger.info("Loaded encryption key from %s", _KEY_FILE_PATH)
+        return _ENCRYPTION_KEY
+
+    # Final fallback: generate a random key and persist it
     raw_key = os.urandom(32)
     _ENCRYPTION_KEY = base64.urlsafe_b64encode(raw_key)
+    _save_key_to_file(_ENCRYPTION_KEY)
     masked = f"{_ENCRYPTION_KEY.decode()[:8]}...{_ENCRYPTION_KEY.decode()[-4:]}"
     logger.warning(
-        f"ENCRYPTION_KEY not set or invalid. Using auto-generated key ({masked}). "
-        "Data encrypted with this key will be unreadable after restart unless you persist the key."
+        "ENCRYPTION_KEY not set. Auto-generated and persisted key (%s) to %s. "
+        "For production, set the ENCRYPTION_KEY environment variable.",
+        masked, _KEY_FILE_PATH,
     )
     return _ENCRYPTION_KEY
 

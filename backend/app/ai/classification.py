@@ -46,6 +46,7 @@ def create_classifier_agent(model: OpenAIChat) -> Agent:
         model=model,
         name="Note Classifier",
         description="Analyze note content and classify into server/channel hierarchy",
+        system_message_role="system",
         instructions="""You are a study note classification assistant. Analyze the user's note content and determine which subject (Server) and topic (Channel) it belongs to.
 
 - If the user already has matching servers/channels, use the existing ones

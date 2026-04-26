@@ -22,3 +22,4 @@ frontend/.vite/
 *.swo
 /backend/uploads/temp
 /backend/data/
+/backend/.encryption_key

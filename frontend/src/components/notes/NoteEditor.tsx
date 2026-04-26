@@ -1,16 +1,17 @@
 import { useState, useRef, useEffect } from "react";
-import { SendHorizontal, PlusCircle, Image as ImageIcon, X } from "lucide-react";
+import { SendHorizontal, PlusCircle, Image as ImageIcon, X, Zap } from "lucide-react";
 import { useNoteStore } from "../../stores";
-import { attachmentApi, type Attachment } from "../../services/attachmentApi";
+import { attachmentApi } from "../../services/attachmentApi";
 
 interface NoteEditorProps {
   channelId: number;
+  aiEnabled?: boolean;
+  onToggleAI?: () => void;
 }
 
-export default function NoteEditor({ channelId }: NoteEditorProps) {
+export default function NoteEditor({ channelId, aiEnabled = true, onToggleAI }: NoteEditorProps) {
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [uploading, setUploading] = useState(false);
   const { createNote } = useNoteStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -18,13 +19,13 @@ export default function NoteEditor({ channelId }: NoteEditorProps) {
   const handleSubmit = async () => {
     if (!content.trim()) return;
 
-    const noteData = { channel_id: channelId, content: content.trim(), content_type: "markdown" };
-    await createNote(noteData);
+    await createNote({
+      channel_id: channelId,
+      content: content.trim(),
+      content_type: "markdown",
+      auto_classify: aiEnabled,
+    });
 
-    // Upload files after note creation (note ID is handled by the store)
-    // For simplicity, files are uploaded via the temp upload API and then
-    // attached. In the current impl, the store's createNote doesn't return
-    // the note ID to us directly, so files are uploaded separately.
     setContent("");
     setFiles([]);
     if (textareaRef.current) {
@@ -86,12 +87,22 @@ export default function NoteEditor({ channelId }: NoteEditorProps) {
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Send a note... (Enter to send, Shift+Enter for new line)"
+            placeholder={aiEnabled ? "Send a note (AI auto-classify on)... (Enter to send)" : "Send a note... (Enter to send, Shift+Enter for new line)"}
             className="flex-1 bg-transparent outline-none text-[#dbdee1] text-[15px] resize-none overflow-hidden h-9 leading-9 placeholder-[#949ba4]"
             rows={1}
             style={{ minHeight: "36px", maxHeight: "200px" }}
           />
           <div className="flex gap-3 text-[#b5bac1] mt-1 pr-1 items-center">
+            {onToggleAI && (
+              <label className="flex items-center gap-1 cursor-pointer select-none" title={aiEnabled ? "AI ON" : "AI OFF"}>
+                <Zap size={14} className={aiEnabled ? "text-[#5865f2]" : "text-[#949ba4]"} />
+                <div className="relative">
+                  <input type="checkbox" checked={aiEnabled} onChange={onToggleAI} className="sr-only" />
+                  <div className={`block w-7 h-3.5 rounded-full transition-colors ${aiEnabled ? "bg-[#5865f2]" : "bg-[#4f545c]"}`} />
+                  <div className={`absolute left-0.5 top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform ${aiEnabled ? "translate-x-3.5" : "translate-x-0"}`} />
+                </div>
+              </label>
+            )}
             <input
               ref={fileInputRef}
               type="file"

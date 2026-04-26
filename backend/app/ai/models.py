@@ -106,6 +106,13 @@ async def get_model_for_user(
         id=model_id,
         api_key=decrypted_key,
         base_url=config["base_url"],
+        role_map={
+            "system": "system",
+            "user": "user",
+            "assistant": "assistant",
+            "tool": "tool",
+            "model": "assistant",
+        },
     )
 
 
@@ -134,6 +141,13 @@ def get_model_by_provider(
         id=model_id,
         api_key=api_key,
         base_url=config["base_url"],
+        role_map={
+            "system": "system",
+            "user": "user",
+            "assistant": "assistant",
+            "tool": "tool",
+            "model": "assistant",
+        },
     )
 
 

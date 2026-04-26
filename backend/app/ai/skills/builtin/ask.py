@@ -14,6 +14,7 @@ class AskSkill(BaseSkill):
         agent = Agent(
             model=context.model,
             name="Ask Assistant",
+            system_message_role="system",
             instructions="You are a helpful assistant in ChatNote. Answer concisely. Reference notes, schedules, and study topics when relevant.",
         )
         response = await agent.arun(input=args)

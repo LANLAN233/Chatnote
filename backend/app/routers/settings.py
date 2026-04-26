@@ -44,7 +44,7 @@ async def update_settings(
         updated = True
 
     if settings_in.api_key is not None:
-        current_user.api_key_encrypted = settings_in.api_key if settings_in.api_key else None
+        current_user.api_key_encrypted = encrypt(settings_in.api_key) if settings_in.api_key else None
         updated = True
 
     if settings_in.theme is not None:

@@ -39,7 +39,7 @@ export default function ServerConsoleView() {
   const navigate = useNavigate();
   const sid = serverId ? parseInt(serverId, 10) : 0;
   const getSuggestions = useConsoleSuggestions(sid);
-  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(true);
 
   return (
     <ConsoleCore

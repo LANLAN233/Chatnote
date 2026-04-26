@@ -21,6 +21,7 @@ export default function NoteList() {
   const channel = channels.find((c) => c.id === Number(channelId));
   const [searchTerm, setSearchTerm] = useState("");
   const [showPanel, setShowPanel] = useState<"none" | "notifications" | "pins">("none");
+  const [aiEnabled, setAiEnabled] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
   const prevNewestNoteId = useRef<number | null>(null);
@@ -154,7 +155,7 @@ export default function NoteList() {
           })}
         </main>
 
-        <NoteEditor channelId={Number(channelId)} />
+        <NoteEditor channelId={Number(channelId)} aiEnabled={aiEnabled} onToggleAI={() => setAiEnabled((v) => !v)} />
       </div>
 
       {showPanel !== "none" && (

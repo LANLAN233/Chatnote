@@ -22,6 +22,7 @@ class SummarizeSkill(BaseSkill):
         agent = Agent(
             model=context.model,
             name="Summarizer",
+            system_message_role="system",
             instructions="Summarize the content concisely. Highlight key points and themes.",
         )
         prompt = f"Recent notes:\n{ctx_text}\n\nRequest: {args or 'Summarize the recent notes'}"

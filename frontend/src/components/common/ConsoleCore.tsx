@@ -2,13 +2,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Terminal, Trash2, RefreshCw, SendHorizontal, Zap, Code } from "lucide-react";
 import type { ConsoleLog } from "../../types";
 
-interface ConsoleScope {
-  type: "global";
-} | {
-  type: "server";
-  serverId: number;
-  serverName: string;
-}
+type ConsoleScope =
+  | { type: "global" }
+  | { type: "server"; serverId: number; serverName: string };
 
 interface ConsoleCoreProps {
   scope: ConsoleScope;
@@ -185,7 +181,12 @@ export default function ConsoleCore({
     setShowSuggestions(false);
 
     try {
-      const result = await executeFn(text, aiEnabled);
+      // When AI is enabled and input is not a command or skill, auto-route to $ask
+      let executeText = text;
+      if (aiEnabled && !text.startsWith("/") && !text.startsWith("$")) {
+        executeText = `$ask ${text}`;
+      }
+      const result = await executeFn(executeText, aiEnabled);
 
       if (result.plugin_responses && result.plugin_responses.length > 0) {
         result.plugin_responses.forEach((pr) => {
@@ -246,19 +247,6 @@ export default function ConsoleCore({
           <h2 className="font-bold text-white text-[14px] uppercase tracking-wider">
             {title}
           </h2>
-          {onToggleAI && (
-            <button
-              onClick={onToggleAI}
-              className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-colors ${
-                aiEnabled
-                  ? "bg-[#5865f2]/20 text-[#5865f2] border border-[#5865f2]/30"
-                  : "bg-[#2b2d31] text-[#949ba4] border border-[#3f4147]"
-              }`}
-              title={aiEnabled ? "AI Enabled" : "AI Disabled"}
-            >
-              {aiEnabled ? "AI ON" : "AI OFF"}
-            </button>
-          )}
         </div>
         <div className="flex items-center gap-3">
           {showRefresh && (
@@ -309,9 +297,23 @@ export default function ConsoleCore({
 
       <footer className="p-6 bg-[#2b2d31] border-t border-[#1e1f22]">
         <div className="max-w-4xl mx-auto space-y-4">
-          <div className="flex items-center gap-2 text-[#949ba4] text-xs font-bold uppercase tracking-widest px-1">
-            <Zap size={14} className={aiEnabled ? "text-[#5865f2] animate-pulse" : "text-[#949ba4]"} />
-            <span>{footerLabel}</span>
+          <div className="flex items-center justify-between gap-2 text-[#949ba4] text-xs font-bold uppercase tracking-widest px-1">
+            <div className="flex items-center gap-2">
+              <Zap size={14} className={aiEnabled ? "text-[#5865f2] animate-pulse" : "text-[#949ba4]"} />
+              <span>{footerLabel}</span>
+            </div>
+            {onToggleAI && (
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <span className={`text-[10px] ${aiEnabled ? "text-[#5865f2]" : "text-[#949ba4]"}`}>
+                  {aiEnabled ? "AI" : "AI"}
+                </span>
+                <div className="relative">
+                  <input type="checkbox" checked={aiEnabled} onChange={onToggleAI} className="sr-only" />
+                  <div className={`block w-8 h-4 rounded-full transition-colors ${aiEnabled ? "bg-[#5865f2]" : "bg-[#4f545c]"}`} />
+                  <div className={`absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${aiEnabled ? "translate-x-4" : "translate-x-0"}`} />
+                </div>
+              </label>
+            )}
           </div>
 
           <div className="relative">

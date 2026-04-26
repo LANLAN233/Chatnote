@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { authApi, serverApi, channelApi, noteApi, settingsApi, apiKeyApi } from "../services";
+import { authApi, serverApi, channelApi, noteApi, aiApi, settingsApi, apiKeyApi } from "../services";
 import wsService from "../services/websocket";
 import type { Channel, Note, NoteList, Server, User, UserApiKey, UserSettingsUpdate } from "../types";
 
@@ -187,7 +187,8 @@ interface NoteState {
   isLoading: boolean;
   realtimeNotes: Note[];
   fetchNotes: (channelId: number, search?: string) => Promise<void>;
-  createNote: (data: { channel_id: number; content: string; content_type?: string }) => Promise<void>;
+  createNote: (data: { channel_id: number; content: string; content_type?: string; auto_classify?: boolean }) => Promise<void>;
+  smartCreateNote: (content: string, autoClassify?: boolean) => Promise<void>;
   updateNote: (id: number, data: { content?: string }) => Promise<void>;
   deleteNote: (id: number) => Promise<void>;
   searchNotes: (query: string) => Promise<Note[]>;
@@ -212,9 +213,19 @@ export const useNoteStore = create<NoteState>((set, get) => ({
     });
   },
   createNote: async (data) => {
+    if (data.auto_classify) {
+      // Use smart-create for AI-classified notes
+      const { data: response } = await aiApi.smartCreate(data.content, true);
+      // Find the channel ID from the response and reload
+      if (data.channel_id) await get().fetchNotes(data.channel_id);
+      return;
+    }
     await noteApi.create(data);
     const channelId = data.channel_id;
     await get().fetchNotes(channelId);
+  },
+  smartCreateNote: async (content, autoClassify = true) => {
+    await aiApi.smartCreate(content, autoClassify);
   },
   updateNote: async (id, data) => {
     await noteApi.update(id, data);

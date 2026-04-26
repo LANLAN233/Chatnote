@@ -19,6 +19,7 @@ class TodoSkill(BaseSkill):
         agent = Agent(
             model=context.model,
             name="Todo Creator",
+            system_message_role="system",
             instructions="Extract the todo item from the text. Return a clear, single-line actionable task description.",
         )
         response = await agent.arun(input=f"Extract todo: {args}")

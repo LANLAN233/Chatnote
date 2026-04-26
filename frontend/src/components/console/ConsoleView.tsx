@@ -31,7 +31,7 @@ function useConsoleSuggestions() {
 
 export default function ConsoleView() {
   const getSuggestions = useConsoleSuggestions();
-  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(true);
 
   return (
     <ConsoleCore

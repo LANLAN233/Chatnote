@@ -100,6 +100,7 @@ def create_schedule_parser_agent(model: OpenAIChat) -> Agent:
         model=model,
         name="Schedule Parser",
         description="Parse natural language into structured schedule data",
+        system_message_role="system",
         instructions=SCHEDULE_PARSE_PROMPT.format(
             today_str=datetime.now().strftime("%Y-%m-%d"),
             weekday_str=str(datetime.now().weekday()),
@@ -114,6 +115,7 @@ def create_schedule_import_agent(model: OpenAIChat) -> Agent:
         model=model,
         name="Schedule Import",
         description="Parse course syllabus / schedule images into structured data",
+        system_message_role="system",
         instructions=SCHEDULE_IMPORT_PROMPT,
         output_schema=ScheduleImportResult,
         structured_outputs=True,
