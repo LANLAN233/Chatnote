@@ -50,8 +50,8 @@ class PluginSandbox:
         r"__import__",
         r"(?<![a-zA-Z0-9_])eval\s*\(",
         r"(?<![a-zA-Z0-9_])exec\s*\(",
-        r"(?<![a-zA-Z0-9_])compile\s*\(",
-        r"(?<![a-zA-Z0-9_])open\s*\(",
+        r"(?<![a-zA-Z0-9_.])compile\s*\(",  # allow re.compile, but block bare compile()
+        r"(?<![a-zA-Z0-9_.])open\s*\(",      # allow module.open, but block bare open()
         r"\.system\s*\(",
         r"\.popen\s*\(",
         r"\.call\s*\(",
