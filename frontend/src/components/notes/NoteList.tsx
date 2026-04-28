@@ -249,7 +249,7 @@ function NoteRow({
   };
 
   return (
-    <div className={`flex gap-4 group hover:bg-[#2e3035] -mx-4 px-4 py-[2px] ${!isSameSender ? "mt-4" : ""}`}>
+    <div className={`relative flex gap-4 group hover:bg-[#2e3035] -mx-4 px-4 py-[2px] ${!isSameSender ? "mt-4" : ""}`}>
       {!isSameSender ? (
         <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-sm mt-1 bg-gradient-to-br from-[#5865f2] to-[#4752c4]">
           {userName[0].toUpperCase()}
@@ -326,27 +326,30 @@ function NoteRow({
         )}
       </div>
 
-      <div className="hidden group-hover:flex items-center gap-0.5 shrink-0 mt-1">
-        <button
-          className="p-1.5 rounded hover:bg-[#35373c] text-[#949ba4] hover:text-white transition-colors"
-          onClick={() => { setEditContent(note.content); setIsEditing(true); }}
-          title="Edit"
-        >
-          <Pencil className="w-3.5 h-3.5" />
-        </button>
-        <button
-          className="p-1.5 rounded hover:bg-[#35373c] text-[#949ba4] hover:text-[#f23f43] transition-colors"
-          onClick={() => setShowDeleteConfirm(true)}
-          title="Delete"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      {/* Discord-style top-right floating action bar */}
+      {!isEditing && (
+        <div className="hidden group-hover:flex absolute -top-3 right-4 items-center gap-0.5 bg-[#2b2d31] rounded-lg shadow-lg border border-[#1e1f22] p-0.5 z-10">
+          <button
+            className="p-1.5 rounded hover:bg-[#35373c] text-[#949ba4] hover:text-white transition-colors"
+            onClick={() => { setEditContent(note.content); setIsEditing(true); }}
+            title="Edit"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            className="p-1.5 rounded hover:bg-[#35373c] text-[#949ba4] hover:text-[#f23f43] transition-colors"
+            onClick={() => setShowDeleteConfirm(true)}
+            title="Delete"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {showDeleteConfirm && (
         <div
           ref={deleteRef}
-          className="absolute right-6 p-3 bg-[#1e1f22] rounded-xl shadow-2xl z-20 flex items-center gap-3 text-sm border border-[#1e1f22] animate-zoom-in"
+          className="absolute top-6 right-4 p-3 bg-[#1e1f22] rounded-xl shadow-2xl z-20 flex items-center gap-3 text-sm border border-[#1e1f22] animate-zoom-in"
         >
           <span className="text-[#dbdee1]">Delete?</span>
           <button className="px-3 py-1.5 bg-[#f23f43] text-white text-[13px] rounded-lg font-medium hover:opacity-90 transition-opacity" onClick={handleDelete}>Delete</button>
