@@ -4,14 +4,14 @@ import {
   BookOpen, Clock, ArrowRight, Star, Hash, Zap,
   Flame, TrendingUp, Tag, Inbox, Loader2, Sparkles, RefreshCw
 } from "lucide-react";
-import { statsApi, aiApi, scheduleApi, inboxApi } from "../../services";
+import { statsApi, aiApi, scheduleApi, inboxApi, channelApi } from "../../services";
 import { useServerStore, useChannelStore } from "../../stores";
 import SearchModal from "../search/SearchModal";
 import HomeConsolePanel from "./HomeConsolePanel";
 import ScheduleImportPanel from "./ScheduleImportPanel";
 import HomeInboxPanel from "./HomeInboxPanel";
 import SmartInput from "../common/SmartInput";
-import type { StatsData, SmartCreateResult, Schedule, Note } from "../../types";
+import type { StatsData, SmartCreateResult, Schedule, Note, Channel } from "../../types";
 
 interface OutletContext {
   homeTab: "overview" | "console" | "import" | "inbox";
@@ -245,16 +245,32 @@ function OverviewTab() {
   // Suggestions for SmartInput
   const servers = useServerStore((s) => s.servers);
   const channels = useChannelStore((s) => s.channels);
-  const getSuggestions = useCallback((filter: string, type: string): string[] => {
+  const getSuggestions = useCallback(async (filter: string, type: string, text: string): Promise<string[]> => {
     const f = filter.toLowerCase();
     let items: string[] = [];
     switch (type) {
       case "server":
         items = servers.filter((s) => s.name.toLowerCase().includes(f)).map((s) => s.name);
         break;
-      case "channel":
-        items = channels.filter((c) => c.name.toLowerCase().includes(f)).map((c) => c.name);
+      case "channel": {
+        const serverMatch = text.match(/@([^\s#]+)(?=\s+#|$)/);
+        const targetServerName = serverMatch ? serverMatch[1] : null;
+        const targetServer = targetServerName
+          ? servers.find((s) => s.name.toLowerCase() === targetServerName.toLowerCase())
+          : null;
+        if (targetServer) {
+          try {
+            const { data } = await channelApi.list(targetServer.id);
+            const serverChannels = (data.data as Channel[]) || [];
+            items = serverChannels.filter((c) => c.name.toLowerCase().includes(f)).map((c) => c.name);
+          } catch {
+            items = [];
+          }
+        } else {
+          items = channels.filter((c) => c.name.toLowerCase().includes(f)).map((c) => c.name);
+        }
         break;
+      }
       case "skill":
         items = ["summarize", "translate", "explain", "ask", "todo", "schedule", "math"].filter((s) => s.includes(f));
         break;

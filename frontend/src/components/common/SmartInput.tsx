@@ -7,7 +7,7 @@ interface SmartInputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
-  getSuggestions?: (filter: string, type: SuggestionType) => string[];
+  getSuggestions?: (filter: string, type: SuggestionType, text: string) => Promise<string[]> | string[];
   placeholder?: string;
   disabled?: boolean;
   loading?: boolean;
@@ -52,7 +52,7 @@ export default function SmartInput({
   const [suggestionFilter, setSuggestionFilter] = useState("");
 
   const handleInputChange = useCallback(
-    (newValue: string) => {
+    async (newValue: string) => {
       onChange(newValue);
       if (!getSuggestions) return;
 
@@ -60,7 +60,7 @@ export default function SmartInput({
       const detected = detectSuggestion(newValue, cursorPos);
 
       if (detected) {
-        const items = getSuggestions(detected.filter, detected.type);
+        const items = await getSuggestions(detected.filter, detected.type, newValue);
         if (items.length > 0) {
           setSuggestions(items);
           setSelectedSuggestion(0);
