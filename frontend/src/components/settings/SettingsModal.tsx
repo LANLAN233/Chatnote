@@ -68,8 +68,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [theme, setTheme] = useState("dark");
 
   // API Key states
-  const [providerList, setProviderList] = useState<Array<{ id: string; name: string; default_model: string }>>([]);
-  const [keyInputs, setKeyInputs] = useState<Record<string, { key: string; model: string; show: boolean }>>({});
+  const [providerList, setProviderList] = useState<Array<{ id: string; name: string; default_model: string; preset_models?: string[] }>>([]);
+  const [keyInputs, setKeyInputs] = useState<Record<string, { key: string; model: string; show: boolean; modelMode: "preset" | "custom"; customModel: string }>>({});
   const [keyLoading, setKeyLoading] = useState(false);
 
   useEffect(() => {
@@ -95,9 +95,20 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       const { data } = await apiKeyApi.providers();
       const providers = data.data?.providers || [];
       setProviderList(providers);
-      const inputs: Record<string, { key: string; model: string; show: boolean }> = {};
-      providers.forEach((p: { id: string; default_model: string }) => {
-        inputs[p.id] = { key: "", model: p.default_model, show: false };
+      const inputs: Record<string, { key: string; model: string; show: boolean; modelMode: "preset" | "custom"; customModel: string }> = {};
+      providers.forEach((p: { id: string; default_model: string; preset_models?: string[] }) => {
+        const saved = apiKeys.find((k) => k.provider === p.id);
+        const savedModel = saved?.model;
+        const presets = p.preset_models || [];
+        const isPreset = savedModel && presets.includes(savedModel);
+        const initialModel = savedModel || p.default_model;
+        inputs[p.id] = {
+          key: "",
+          model: initialModel,
+          show: false,
+          modelMode: isPreset || !savedModel ? "preset" : "custom",
+          customModel: isPreset || !savedModel ? "" : savedModel,
+        };
       });
       setKeyInputs(inputs);
     } catch {}
@@ -164,7 +175,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     if (!input) return;
     setKeyLoading(true);
     try {
-      await addApiKey({ provider, api_key: input.key, model: input.model });
+      const modelToSend = input.modelMode === "custom" && input.customModel.trim()
+        ? input.customModel.trim()
+        : input.model;
+      await addApiKey({ provider, api_key: input.key, model: modelToSend });
       setKeyInputs((prev) => ({
         ...prev,
         [provider]: { ...prev[provider], key: "" },
@@ -354,6 +368,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <option value="zhipu">智谱 AI</option>
                     <option value="qwen">通义千问</option>
                     <option value="openai">OpenAI</option>
+                    <option value="opencode-zen">OpenCode Zen</option>
+                    <option value="opencode-go">OpenCode Go</option>
                     <option value="mock">模拟模式（演示）</option>
                   </select>
                   <p className="text-xs text-[#949ba4] mt-2">
@@ -417,18 +433,53 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <label className="block text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-1">
                             模型
                           </label>
-                          <input
-                            type="text"
-                            value={input.model}
-                            onChange={(e) =>
+                          <select
+                            value={input.modelMode}
+                            onChange={(e) => {
+                              const mode = e.target.value as "preset" | "custom";
                               setKeyInputs((prev) => ({
                                 ...prev,
-                                [provider.id]: { ...prev[provider.id], model: e.target.value },
-                              }))
-                            }
-                            placeholder={provider.default_model}
-                            className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
-                          />
+                                [provider.id]: {
+                                  ...prev[provider.id],
+                                  modelMode: mode,
+                                  model: mode === "preset" ? (provider.preset_models?.[0] || provider.default_model) : prev[provider.id].model,
+                                },
+                              }));
+                            }}
+                            className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm mb-2"
+                          >
+                            <option value="preset">预设模型</option>
+                            <option value="custom">自定义输入</option>
+                          </select>
+                          {input.modelMode === "preset" ? (
+                            <select
+                              value={input.model}
+                              onChange={(e) =>
+                                setKeyInputs((prev) => ({
+                                  ...prev,
+                                  [provider.id]: { ...prev[provider.id], model: e.target.value },
+                                }))
+                              }
+                              className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
+                            >
+                              {(provider.preset_models || [provider.default_model]).map((m) => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={input.customModel}
+                              onChange={(e) =>
+                                setKeyInputs((prev) => ({
+                                  ...prev,
+                                  [provider.id]: { ...prev[provider.id], customModel: e.target.value },
+                                }))
+                              }
+                              placeholder={provider.default_model}
+                              className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
+                            />
+                          )}
                         </div>
                         <div>
                           <label className="block text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-1">

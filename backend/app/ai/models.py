@@ -31,6 +31,16 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "default_model": "gpt-3.5-turbo",
         "vision_model": "gpt-4o",
     },
+    "opencode-zen": {
+        "base_url": "https://opencode.ai/zen/v1",
+        "default_model": "kimi-k2.6",
+        "vision_model": "kimi-k2.6",
+    },
+    "opencode-go": {
+        "base_url": "https://opencode.ai/zen/go/v1",
+        "default_model": "kimi-k2.6",
+        "vision_model": "kimi-k2.6",
+    },
 }
 
 

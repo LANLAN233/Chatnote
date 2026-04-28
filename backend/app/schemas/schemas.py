@@ -205,6 +205,11 @@ class ConsoleSessionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ConsoleArchiveRequest(BaseModel):
+    server_id: int = Field(..., description="Target server ID")
+    channel_id: int = Field(..., description="Target channel ID")
+
+
 class NoteCreateWithClassify(BaseModel):
     content: str = Field(..., min_length=1)
     server_name: str | None = None

@@ -104,6 +104,8 @@ export const consoleSessionApi = {
   update: (id: number, data: { title?: string }) =>
     api.put<ApiResponse<ConsoleSession>>(`/console/sessions/${id}`, data),
   delete: (id: number) => api.delete<ApiResponse<null>>(`/console/sessions/${id}`),
+  archive: (id: number, data: { server_id: number; channel_id: number }) =>
+    api.post<ApiResponse<{ note_id: number; channel_id: number; server_id: number }>>(`/console/sessions/${id}/archive`, data),
 };
 
 export const statsApi = {

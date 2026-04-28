@@ -7,16 +7,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.console_agent import execute_command
+from app.ai.intent_router import analyze_intent
 from app.ai.models import get_model_for_user
 from app.ai.skills import skill_registry
 from app.ai.skills.base import SkillContext
 from app.database import get_db
-from app.models.models import ConsoleMessage, ConsoleSession, Server, User
+from app.models.models import Channel, ConsoleMessage, ConsoleSession, Note, Server, User
 from app.plugins import plugin_manager
 from app.routers.ai import smart_create_note
 from app.routers.auth import get_current_user
 from app.schemas.schemas import (
     ApiResponse,
+    ConsoleArchiveRequest,
     ConsoleExecuteRequest,
     ConsoleSessionCreate,
     ConsoleSessionResponse,
@@ -276,6 +278,37 @@ async def console_execute(
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
         return ApiResponse(success=True, data={**result, "session_id": session.id})
 
+    # --- AI Intent Routing (natural language → skill auto-match) ---
+    if req.ai_enabled:
+        model = await get_model_for_user(current_user.id, db)
+        if model is not None:
+            intent_result = await analyze_intent(
+                req.input, model, skill_registry.list_skills(), threshold=0.75
+            )
+            if intent_result.skill_name:
+                # Auto-dispatch to matched skill
+                skill_result = await _dispatch_skill(
+                    intent_result.skill_name,
+                    intent_result.args or req.input,
+                    current_user.id,
+                    db,
+                )
+                await _save_message(
+                    session.id, "assistant",
+                    skill_result.get("content", ""),
+                    skill_result.get("type", "text"),
+                    db,
+                )
+                return ApiResponse(
+                    success=True,
+                    data={
+                        **skill_result,
+                        "session_id": session.id,
+                        "routed_by_intent": intent_result.intent,
+                        "routed_skill": intent_result.skill_name,
+                    },
+                )
+
     # Dispatch to plugins first
     plugin_responses = await plugin_manager.dispatch_message(
         req.input, {"user_id": current_user.id}
@@ -364,6 +397,37 @@ async def server_console_execute(
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
         return ApiResponse(success=True, data={**result, "session_id": session.id})
 
+    # --- AI Intent Routing (natural language → skill auto-match) ---
+    if req.ai_enabled:
+        model = await get_model_for_user(current_user.id, db)
+        if model is not None:
+            intent_result = await analyze_intent(
+                req.input, model, skill_registry.list_skills(), threshold=0.75
+            )
+            if intent_result.skill_name:
+                skill_result = await _dispatch_skill(
+                    intent_result.skill_name,
+                    intent_result.args or req.input,
+                    current_user.id,
+                    db,
+                    server_context={"server_id": server_id, "server_name": server.name},
+                )
+                await _save_message(
+                    session.id, "assistant",
+                    skill_result.get("content", ""),
+                    skill_result.get("type", "text"),
+                    db,
+                )
+                return ApiResponse(
+                    success=True,
+                    data={
+                        **skill_result,
+                        "session_id": session.id,
+                        "routed_by_intent": intent_result.intent,
+                        "routed_skill": intent_result.skill_name,
+                    },
+                )
+
     smart_req = NoteCreateWithClassify(
         content=req.input,
         server_name=server.name,
@@ -384,3 +448,63 @@ async def server_console_execute(
         note_result.data = {"session_id": session.id}
 
     return note_result
+
+
+# ---------------------------------------------------------------------------
+# Archive console session to a server/channel
+# ---------------------------------------------------------------------------
+
+@router.post("/api/console/sessions/{session_id}/archive", response_model=ApiResponse)
+async def archive_session(
+    session_id: int,
+    req: ConsoleArchiveRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Archive a console session's messages as a note in a server/channel."""
+    session = await db.get(ConsoleSession, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Verify server/channel ownership
+    server = await db.get(Server, req.server_id)
+    if not server or server.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    channel = await db.get(Channel, req.channel_id)
+    if not channel or channel.server_id != server.id:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Load messages
+    await db.refresh(session, attribute_names=["messages"])
+    msgs = session.messages or []
+
+    if not msgs:
+        raise HTTPException(status_code=400, detail="Session has no messages to archive")
+
+    # Build markdown content
+    lines: list[str] = [f"# {session.title}\n", f"*Archived from Console Session*\n"]
+    for msg in msgs:
+        role_label = msg.role.capitalize()
+        timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M") if msg.created_at else ""
+        lines.append(f"**{role_label}** ({timestamp}):\n{msg.content}\n")
+
+    content = "\n".join(lines)
+
+    note = Note(
+        channel_id=channel.id,
+        user_id=current_user.id,
+        content=content,
+        content_type="markdown",
+        raw_input=f"[Archived from console session #{session.id}]",
+        ai_tags='["archive", "console"]',
+    )
+    db.add(note)
+    await db.flush()
+    await db.refresh(note)
+
+    return ApiResponse(
+        success=True,
+        data={"note_id": note.id, "channel_id": channel.id, "server_id": server.id},
+        message="Session archived successfully",
+    )

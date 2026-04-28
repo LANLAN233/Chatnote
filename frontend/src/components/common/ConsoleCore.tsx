@@ -13,9 +13,11 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Save,
+  FolderOpen,
 } from "lucide-react";
-import type { ConsoleMessage, ConsoleSession } from "../../types";
-import { consoleSessionApi } from "../../services";
+import type { ConsoleMessage, ConsoleSession, Server, Channel } from "../../types";
+import { consoleSessionApi, serverApi, channelApi } from "../../services";
 
 type ConsoleScope =
   | { type: "global" }
@@ -78,6 +80,15 @@ export default function ConsoleCore({
 
   const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+
+  // Archive dialog states
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [archiveSessionId, setArchiveSessionId] = useState<number | null>(null);
+  const [archiveServers, setArchiveServers] = useState<Server[]>([]);
+  const [archiveChannels, setArchiveChannels] = useState<Channel[]>([]);
+  const [selectedArchiveServer, setSelectedArchiveServer] = useState<number | null>(null);
+  const [selectedArchiveChannel, setSelectedArchiveChannel] = useState<number | null>(null);
+  const [archiveLoading, setArchiveLoading] = useState(false);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -170,6 +181,56 @@ export default function ConsoleCore({
       // silent fail
     } finally {
       setEditingSessionId(null);
+    }
+  };
+
+  // Archive dialog functions
+  const openArchiveDialog = async (sessionId: number) => {
+    setArchiveSessionId(sessionId);
+    setShowArchiveDialog(true);
+    setSelectedArchiveServer(null);
+    setSelectedArchiveChannel(null);
+    setArchiveChannels([]);
+    try {
+      const { data: res } = await serverApi.list();
+      if (res?.success && res.data) {
+        setArchiveServers(res.data);
+      }
+    } catch {
+      // silent fail
+    }
+  };
+
+  const handleServerSelect = async (serverId: number) => {
+    setSelectedArchiveServer(serverId);
+    setSelectedArchiveChannel(null);
+    setArchiveChannels([]);
+    try {
+      const { data: res } = await channelApi.list(serverId);
+      if (res?.success && res.data) {
+        setArchiveChannels(res.data);
+      }
+    } catch {
+      // silent fail
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!archiveSessionId || !selectedArchiveServer || !selectedArchiveChannel) return;
+    setArchiveLoading(true);
+    try {
+      await consoleSessionApi.archive(archiveSessionId, {
+        server_id: selectedArchiveServer,
+        channel_id: selectedArchiveChannel,
+      });
+      setShowArchiveDialog(false);
+      setArchiveSessionId(null);
+      setSelectedArchiveServer(null);
+      setSelectedArchiveChannel(null);
+    } catch {
+      // silent fail
+    } finally {
+      setArchiveLoading(false);
     }
   };
 
@@ -528,6 +589,16 @@ export default function ConsoleCore({
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
+                                openArchiveDialog(session.id);
+                              }}
+                              className="text-[#949ba4] hover:text-[#23a559]"
+                              title="Archive to channel"
+                            >
+                              <Save size={12} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 startEditTitle(session);
                               }}
                               className="text-[#949ba4] hover:text-white"
@@ -803,6 +874,82 @@ export default function ConsoleCore({
           </footer>
         </div>
       </div>
+
+      {/* Archive Dialog */}
+      {showArchiveDialog && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#313338] rounded-xl border border-[#1e1f22] shadow-2xl w-[420px] max-w-[90vw] p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <FolderOpen size={20} className="text-[#5865f2]" />
+              <h3 className="text-white font-bold text-lg">Archive Session</h3>
+            </div>
+            <p className="text-[#949ba4] text-sm">
+              Save this console session as a note in a channel.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-1.5">
+                  Server
+                </label>
+                <select
+                  value={selectedArchiveServer || ""}
+                  onChange={(e) => handleServerSelect(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
+                >
+                  <option value="">Select a server...</option>
+                  {archiveServers.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-1.5">
+                  Channel
+                </label>
+                <select
+                  value={selectedArchiveChannel || ""}
+                  onChange={(e) => setSelectedArchiveChannel(Number(e.target.value))}
+                  disabled={!selectedArchiveServer || archiveChannels.length === 0}
+                  className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm disabled:opacity-40"
+                >
+                  <option value="">Select a channel...</option>
+                  {archiveChannels.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => {
+                  setShowArchiveDialog(false);
+                  setArchiveSessionId(null);
+                  setSelectedArchiveServer(null);
+                  setSelectedArchiveChannel(null);
+                }}
+                className="px-4 py-2 text-[#949ba4] hover:text-white text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleArchive}
+                disabled={!selectedArchiveChannel || archiveLoading}
+                className="px-5 py-2 bg-[#5865f2] hover:bg-[#4752c4] disabled:opacity-60 text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2"
+              >
+                {archiveLoading ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Save size={14} />
+                )}
+                Archive
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

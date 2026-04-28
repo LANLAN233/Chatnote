@@ -30,11 +30,48 @@ class ScheduleImportResult(BaseModel):
     suggestions: list[dict] = Field(description="Optimization suggestions", default_factory=list)
 
 
-SCHEDULE_PARSE_PROMPT = """You are a schedule parser. Parse the user's natural language schedule description.
+SCHEDULE_PARSE_PROMPT = """You are an intelligent schedule and time management assistant for ChatNote. Parse natural language schedule descriptions into structured data with high accuracy.
 
-Today's date: {today_str}, weekday: {weekday_str}
+## Context
+Today's date: {today_str}, weekday: {weekday_str} (0=Monday, 6=Sunday)
 
-Output strict JSON:
+## Parsing Rules
+
+1. **Time Recognition**
+   - Convert Chinese time expressions precisely:
+     - "上午8点" → 08:00, "下午3点半" → 15:30
+     - "晚上7点" → 19:00, "中午12点" → 12:00
+     - "凌晨2点" → 02:00
+   - Handle duration-implied end times:
+     - "2pm to 4pm" → start_time=14:00, end_time=16:00
+     - "3点开始的2小时课" → start_time=15:00, end_time=17:00
+   - Default class duration: 45-90 minutes if end_time not specified
+
+2. **Date Recognition**
+   - Relative dates:
+     - "今天" → today, "明天" → tomorrow, "后天" → day after tomorrow
+     - "下周三" → next Wednesday, "这周五" → this Friday
+     - "下个月1号" → first day of next month
+   - Absolute dates: extract YYYY-MM-DD if present
+
+3. **Recurring Patterns**
+   - "每周一三五" → repeat_rule: {{"type": "weekly", "days": [0, 2, 4]}}
+   - "每天" / "每日" → repeat_rule: {{"type": "daily"}}
+   - "工作日" → repeat_rule: {{"type": "weekly", "days": [0, 1, 2, 3, 4]}}
+   - "每两周" → repeat_rule: {{"type": "weekly", "interval": 2}}
+
+4. **Title Extraction**
+   - Remove temporal markers from title
+   - Keep the core event name: "明天下午2点高数课" → "高等数学"
+   - Include location if mentioned: "301教室的物理实验" → "物理实验 @301教室"
+
+5. **Confidence Scoring**
+   - 0.9-1.0: Explicit time, clear date, unambiguous event
+   - 0.7-0.9: Implicit time (e.g., "下午" without exact hour), relative date
+   - 0.5-0.7: Vague timing (e.g., "最近"), missing key details
+   - <0.5: Unclear what the event is
+
+## Output Format
 {{
     "title": "schedule title",
     "description": "details or null",
@@ -44,55 +81,86 @@ Output strict JSON:
     "day_of_week": 0-6 or null,
     "repeat_rule": null or {{"type":"weekly"}} or {{"type":"daily"}},
     "is_all_day": false,
-    "confidence": 0.95
+    "confidence": 0.0-1.0
 }}
 
-Examples:
-- "tomorrow 2pm math class" → date=tomorrow, start_time=14:00
-- "every Mon Wed Fri 7pm gym" → day_of_week, repeat_rule weekly
-- "next Wednesday all day meeting" → date, is_all_day true
-- "9am daily vocabulary" → repeat_rule daily, start_time=09:00"""
+## Examples
+- "明天下午2点高数课" → title="高等数学", date=tomorrow, start_time=14:00, end_time=15:35
+- "每周一三五晚上7点健身" → title="健身", repeat_rule={{"type":"weekly"}}, start_time=19:00
+- "下周三全天开会" → title="会议", date=next_Wednesday, is_all_day=true
+- "每天早上8点背单词" → title="背单词", repeat_rule={{"type":"daily"}}, start_time=08:00"""
 
-SCHEDULE_IMPORT_PROMPT = """You are a course syllabus and schedule import assistant for ChatNote.
+SCHEDULE_IMPORT_PROMPT = """You are an expert academic schedule analyst and course organizer for ChatNote.
 
-Tasks:
-1. Extract all courses/subjects → suggested servers
-2. Extract chapters/topics per subject → suggested channels with brief note content
-3. Extract class times/locations/repeat rules → schedules
-4. Provide 1-3 actionable optimization suggestions
+Your task is to intelligently parse course syllabi, schedules, or curriculum descriptions (text or images) and convert them into a structured learning plan.
 
-Output strict JSON:
+## Analysis Strategy
+
+1. **Course Extraction**
+   - Identify ALL courses/subjects mentioned
+   - Use concise Chinese names when the source is in Chinese
+   - Group related sub-topics under the same course (e.g., "理论力学" and "材料力学" both under "力学")
+
+2. **Topic Hierarchy**
+   - Break down each course into logical chapters/units
+   - Channel names should represent distinct learning modules
+   - For each channel, generate a brief 1-line overview note
+   - Consider prerequisite relationships (mark foundational topics)
+
+3. **Schedule Extraction**
+   - Extract ALL class times, locations, and recurrence patterns
+   - Handle various formats: "周一 8:00-9:35", "Mon/Wed/Fri 2pm", etc.
+   - Include location info in description when available
+   - Handle exam dates, deadlines, and special events
+   - Distinguish between lecture, lab, and review sessions
+
+4. **Smart Suggestions**
+   - Identify missing study resources (e.g., "建议添加 #错题本 频道")
+   - Note scheduling conflicts or dense periods
+   - Suggest review schedules before exams
+   - Recommend complementary channels based on course type
+
+## Output Format
 {
     "servers": [
         {
-            "name": "Advanced Calculus II",
+            "name": "Course Name",
             "channels": [
-                {"name": "Chapter 3 Limits", "notes": [{"content": "Limits and continuity overview"}]}
+                {
+                    "name": "Topic Name",
+                    "notes": [{"content": "Brief overview of this topic"}]
+                }
             ]
         }
     ],
     "schedules": [
         {
-            "title": "Advanced Calculus II",
-            "description": "Mon period 1-2, Room 301",
-            "start_time": "08:00",
-            "end_time": "09:35",
-            "date": null,
-            "day_of_week": 0,
-            "repeat_rule": {"type": "weekly"},
+            "title": "Course Name",
+            "description": "Location, room, or additional info",
+            "start_time": "HH:MM",
+            "end_time": "HH:MM",
+            "date": "YYYY-MM-DD or null",
+            "day_of_week": 0-6 or null,
+            "repeat_rule": {"type": "weekly"} or null,
             "is_all_day": false,
-            "confidence": 0.9
+            "confidence": 0.0-1.0
         }
     ],
     "suggestions": [
-        {"type": "channel", "target_server": "Advanced Calculus II", "message": "Add #ErrorLog channel"}
+        {
+            "type": "channel|schedule|study_tip",
+            "target_server": "Server Name",
+            "message": "Specific actionable suggestion"
+        }
     ]
 }
 
-Rules:
-- schedules can be empty array if no time info
-- notes content should be a one-line overview
-- suggestions must be specific and actionable"""
+## Quality Standards
+- Server names: 2-10 characters, clear and specific
+- Channel names: represent actual learning modules, not vague categories
+- Schedules: include all recurring patterns, handle edge cases
+- Suggestions: be specific and genuinely useful, not generic
+- Handle ambiguous or incomplete input gracefully"""
 
 
 def create_schedule_parser_agent(model: OpenAIChat) -> Agent:
