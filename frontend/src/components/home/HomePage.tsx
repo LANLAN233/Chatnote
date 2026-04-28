@@ -441,7 +441,7 @@ function OverviewTab() {
             )}
 
             {/* Quick Capture */}
-            <div className="bg-[#2b2d31] p-6 rounded-2xl border border-[#5865f2]/30 shadow-[0_0_20px_rgba(88,101,242,0.1)] relative overflow-hidden group mt-auto">
+            <div className="bg-[#2b2d31] p-6 rounded-2xl border border-[#5865f2]/30 shadow-[0_0_20px_rgba(88,101,242,0.1)] relative group mt-auto">
               <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
                 <Zap size={64} className="text-[#5865f2]" />
               </div>
