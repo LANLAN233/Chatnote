@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -43,7 +43,7 @@ async def _check_duplicate_channel_name(
 ) -> None:
     stmt = select(Channel).where(
         Channel.server_id == server_id,
-        Channel.name == name,
+        func.lower(Channel.name) == name.lower(),
     )
     if exclude_channel_id is not None:
         stmt = stmt.where(Channel.id != exclude_channel_id)
