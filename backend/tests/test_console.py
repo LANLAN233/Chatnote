@@ -115,3 +115,57 @@ async def test_console_note_input(client: AsyncClient, auth_headers: dict):
     data = response.json()
     assert data["success"] is True
     assert "note" in data["data"]
+
+
+@pytest.mark.asyncio
+async def test_server_console_help(client: AsyncClient, auth_headers: dict, db_session):
+    server = Server(user_id=1, name="TestServer")
+    db_session.add(server)
+    await db_session.flush()
+
+    response = await client.post(
+        f"/api/server/{server.id}/console/execute",
+        json={"input": "/help"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["type"] == "text"
+    assert "help" in data["data"]["content"].lower()
+
+
+@pytest.mark.asyncio
+async def test_server_console_note_input(client: AsyncClient, auth_headers: dict, db_session):
+    server = Server(user_id=1, name="TestServer")
+    db_session.add(server)
+    await db_session.flush()
+
+    response = await client.post(
+        f"/api/server/{server.id}/console/execute",
+        json={"input": "Server scoped note about calculus"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert "note" in data["data"]
+    assert data["data"]["server_id"] == server.id
+
+
+@pytest.mark.asyncio
+async def test_server_console_skill_without_api_key(client: AsyncClient, auth_headers: dict, db_session):
+    server = Server(user_id=1, name="TestServer")
+    db_session.add(server)
+    await db_session.flush()
+
+    response = await client.post(
+        f"/api/server/{server.id}/console/execute",
+        json={"input": "$ask hello", "ai_enabled": True},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["type"] == "error"
+    assert "api key" in data["data"]["content"].lower() or "model" in data["data"]["content"].lower()

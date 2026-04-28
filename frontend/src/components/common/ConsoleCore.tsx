@@ -182,8 +182,9 @@ export default function ConsoleCore({
 
     try {
       // When AI is enabled and input is not a command or skill, auto-route to $ask
+      // Only in global console; server console keeps normal note behavior (smart-create)
       let executeText = text;
-      if (aiEnabled && !text.startsWith("/") && !text.startsWith("$")) {
+      if (aiEnabled && !text.startsWith("/") && !text.startsWith("$") && scope.type === "global") {
         executeText = `$ask ${text}`;
       }
       const result = await executeFn(executeText, aiEnabled);
