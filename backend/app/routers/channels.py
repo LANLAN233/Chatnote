@@ -35,6 +35,23 @@ async def list_channels(
     )
 
 
+async def _check_duplicate_channel_name(
+    server_id: int,
+    name: str,
+    db: AsyncSession,
+    exclude_channel_id: int | None = None,
+) -> None:
+    stmt = select(Channel).where(
+        Channel.server_id == server_id,
+        Channel.name == name,
+    )
+    if exclude_channel_id is not None:
+        stmt = stmt.where(Channel.id != exclude_channel_id)
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Channel name already exists in this server")
+
+
 @router.post("", response_model=ApiResponse, status_code=201)
 async def create_channel(
     server_id: int,
@@ -43,6 +60,7 @@ async def create_channel(
     db: AsyncSession = Depends(get_db),
 ):
     await _verify_server_ownership(server_id, current_user, db)
+    await _check_duplicate_channel_name(server_id, channel_in.name, db)
     channel = Channel(server_id=server_id, **channel_in.model_dump())
     db.add(channel)
     await db.flush()
@@ -79,6 +97,8 @@ async def update_channel(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     update_data = channel_in.model_dump(exclude_unset=True)
+    if "name" in update_data:
+        await _check_duplicate_channel_name(server_id, update_data["name"], db, exclude_channel_id=channel_id)
     for key, value in update_data.items():
         setattr(channel, key, value)
     await db.flush()

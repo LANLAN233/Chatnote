@@ -59,3 +59,39 @@ async def test_delete_channel(client, auth_headers):
         f"/api/servers/{server_id}/channels/{channel_id}", headers=auth_headers
     )
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_create_duplicate_channel_name(client, auth_headers):
+    server_resp = await client.post("/api/servers", json={"name": "Srv"}, headers=auth_headers)
+    server_id = server_resp.json()["data"]["id"]
+    await client.post(f"/api/servers/{server_id}/channels", json={"name": "Duplicate"}, headers=auth_headers)
+    response = await client.post(f"/api/servers/{server_id}/channels", json={"name": "Duplicate"}, headers=auth_headers)
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_update_duplicate_channel_name(client, auth_headers):
+    server_resp = await client.post("/api/servers", json={"name": "Srv"}, headers=auth_headers)
+    server_id = server_resp.json()["data"]["id"]
+    await client.post(f"/api/servers/{server_id}/channels", json={"name": "Alpha"}, headers=auth_headers)
+    ch_resp = await client.post(f"/api/servers/{server_id}/channels", json={"name": "Beta"}, headers=auth_headers)
+    channel_id = ch_resp.json()["data"]["id"]
+    response = await client.put(
+        f"/api/servers/{server_id}/channels/{channel_id}", json={"name": "Alpha"}, headers=auth_headers
+    )
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_same_name_across_servers_allowed(client, auth_headers):
+    s1 = await client.post("/api/servers", json={"name": "Srv1"}, headers=auth_headers)
+    s2 = await client.post("/api/servers", json={"name": "Srv2"}, headers=auth_headers)
+    server1_id = s1.json()["data"]["id"]
+    server2_id = s2.json()["data"]["id"]
+    r1 = await client.post(f"/api/servers/{server1_id}/channels", json={"name": "Shared"}, headers=auth_headers)
+    r2 = await client.post(f"/api/servers/{server2_id}/channels", json={"name": "Shared"}, headers=auth_headers)
+    assert r1.status_code == 201
+    assert r2.status_code == 201

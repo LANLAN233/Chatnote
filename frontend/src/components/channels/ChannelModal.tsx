@@ -11,16 +11,26 @@ interface ChannelModalProps {
 export default function ChannelModal({ serverId, onClose, channel }: ChannelModalProps) {
   const [name, setName] = useState(channel?.name || "");
   const [description, setDescription] = useState(channel?.description || "");
+  const [error, setError] = useState("");
   const { createChannel, updateChannel } = useChannelStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (channel) {
-      await updateChannel(serverId, channel.id, { name, description: description || undefined });
-    } else {
-      await createChannel(serverId, { name, description: description || undefined });
+    setError("");
+    try {
+      if (channel) {
+        await updateChannel(serverId, channel.id, { name, description: description || undefined });
+      } else {
+        await createChannel(serverId, { name, description: description || undefined });
+      }
+      onClose();
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        setError("该服务器下已存在同名频道");
+      } else {
+        setError(err?.response?.data?.detail || "操作失败，请稍后重试");
+      }
     }
-    onClose();
   };
 
   return (
@@ -61,6 +71,9 @@ export default function ChannelModal({ serverId, onClose, channel }: ChannelModa
             />
           </div>
 
+          {error && (
+            <p className="text-[#f23f43] text-xs font-bold">{error}</p>
+          )}
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
