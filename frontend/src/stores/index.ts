@@ -213,16 +213,20 @@ export const useNoteStore = create<NoteState>((set, get) => ({
     });
   },
   createNote: async (data) => {
-    if (data.auto_classify) {
-      // Use smart-create for AI-classified notes
-      const { data: response } = await aiApi.smartCreate(data.content, true);
-      // Find the channel ID from the response and reload
+    const hasExplicitTarget = /[@#]/.test(data.content);
+    if (data.auto_classify && hasExplicitTarget) {
+      // Use smart-create only when user explicitly wrote @Server #Channel
+      const { data: response } = await aiApi.smartCreate(data.content, true, data.channel_id);
       if (data.channel_id) await get().fetchNotes(data.channel_id);
       return;
     }
-    await noteApi.create(data);
-    const channelId = data.channel_id;
-    await get().fetchNotes(channelId);
+    // Normal creation: pin to current channel when inside a channel
+    await noteApi.create({
+      channel_id: data.channel_id,
+      content: data.content,
+      content_type: data.content_type || "markdown",
+    });
+    await get().fetchNotes(data.channel_id);
   },
   smartCreateNote: async (content, autoClassify = true) => {
     await aiApi.smartCreate(content, autoClassify);

@@ -68,10 +68,11 @@ export const noteApi = {
 export const aiApi = {
   classify: (content: string) =>
     api.post<ApiResponse<ClassificationResult>>("/ai/classify", { content }),
-  smartCreate: (content: string, autoClassify = true) =>
+  smartCreate: (content: string, autoClassify = true, channelId?: number) =>
     api.post<ApiResponse<SmartCreateResult>>("/notes/smart-create", {
       content,
       auto_classify: autoClassify,
+      channel_id: channelId,
     }),
   importSchedule: (text?: string, imageUrl?: string) => {
     return api.post<ApiResponse<ScheduleImportResult>>("/ai/import-schedule", {

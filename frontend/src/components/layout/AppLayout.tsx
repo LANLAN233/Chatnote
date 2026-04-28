@@ -37,7 +37,7 @@ export default function AppLayout() {
   const showChannelList = !isHomePage && !noChannelListPaths.some(path => location.pathname.startsWith(path));
 
   return (
-    <div className="flex h-screen w-full select-none overflow-hidden relative font-sans text-[#dbdee1]">
+    <div className="flex h-screen w-full overflow-hidden relative font-sans text-[#dbdee1]">
       <Sidebar />
       {isHomePage && <HomeSidebar activeTab={homeTab} onTabChange={setHomeTab} inboxBadge={inboxBadge} />}
       {showChannelList && <ChannelList />}

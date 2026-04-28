@@ -87,7 +87,7 @@ export default function NoteEditor({ channelId, aiEnabled = true, onToggleAI }: 
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={aiEnabled ? "Send a note (AI auto-classify on)... (Enter to send)" : "Send a note... (Enter to send, Shift+Enter for new line)"}
+            placeholder={aiEnabled ? "Send a note (AI ON – @Server #Channel to cross-post)..." : "Send a note... (Enter to send, Shift+Enter for new line)"}
             className="flex-1 bg-transparent outline-none text-[#dbdee1] text-[15px] resize-none overflow-hidden h-9 leading-9 placeholder-[#949ba4]"
             rows={1}
             style={{ minHeight: "36px", maxHeight: "200px" }}

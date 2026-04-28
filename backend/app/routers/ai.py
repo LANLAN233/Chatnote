@@ -48,7 +48,19 @@ async def smart_create_note(
     server_id = None
     channel_id = None
 
-    if parsed.server_name or parsed.channel_name:
+    # If user is inside a channel and did NOT explicitly write @Server #Channel,
+    # pin the note to the current channel so it never "disappears" elsewhere.
+    has_explicit_target = bool(parsed.server_name or parsed.channel_name)
+    if not has_explicit_target and req.channel_id:
+        ch_result = await db.execute(
+            select(Channel).where(Channel.id == req.channel_id)
+        )
+        channel = ch_result.scalar_one_or_none()
+        if channel:
+            channel_id = channel.id
+            server_id = channel.server_id
+
+    if not channel_id and (parsed.server_name or parsed.channel_name):
         if parsed.server_name:
             srv_result = await db.execute(
                 select(Server).where(
@@ -98,14 +110,14 @@ async def smart_create_note(
             channel = ch_result.scalar_one_or_none()
             if channel:
                 channel_id = channel.id
-    elif req.auto_classify:
+    elif not channel_id and req.auto_classify:
         classification = await classify_note(
             parsed.content, db, current_user.id,
         )
         classification = await resolve_classification(classification, db, current_user.id)
         server_id = classification.get("server_id")
         channel_id = classification.get("channel_id")
-    else:
+    elif not channel_id:
         srv_result = await db.execute(
             select(Server)
             .where(Server.user_id == current_user.id)

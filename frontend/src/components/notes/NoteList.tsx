@@ -14,6 +14,32 @@ import AttachmentCard from "./AttachmentCard";
 /** 同一段消息的最大时间间隔：3 分钟（毫秒） */
 const GROUP_TIME_WINDOW = 3 * 60 * 1000;
 
+function DateDivider({ date }: { date: string }) {
+  const d = new Date(date + 'Z');
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const isToday = d.toDateString() === now.toDateString();
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  let label: string;
+  if (isToday) {
+    label = 'Today';
+  } else if (isYesterday) {
+    label = 'Yesterday';
+  } else {
+    label = d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  }
+
+  return (
+    <div className="relative flex items-center justify-center my-4 py-2">
+      <div className="absolute w-full h-[1px] bg-[#3f4147]" />
+      <span className="relative px-2 bg-[#313338] text-[12px] font-bold text-[#949ba4]">{label}</span>
+    </div>
+  );
+}
+
 export default function NoteList() {
   const { channelId } = useParams<{ channelId: string }>();
   const { notes, fetchNotes } = useNoteStore();
@@ -126,11 +152,6 @@ export default function NoteList() {
         </header>
 
         <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 pt-4 pb-2 space-y-[2px]">
-          <div className="relative flex items-center justify-center my-4 py-2">
-            <div className="absolute w-full h-[1px] bg-[#3f4147]" />
-            <span className="relative px-2 bg-[#313338] text-[12px] font-bold text-[#949ba4]">Today</span>
-          </div>
-
           {sortedNotes.length === 0 && searchTerm && (
             <div className="text-center py-20">
               <p className="text-[#949ba4]">No results for &ldquo;{searchTerm}&rdquo; in this channel.</p>
@@ -140,18 +161,24 @@ export default function NoteList() {
           {sortedNotes.map((note, idx) => {
             const prevNote = idx > 0 ? sortedNotes[idx - 1] : null;
             const timeDiff = prevNote
-              ? new Date(note.created_at).getTime() - new Date(prevNote.created_at).getTime()
+              ? new Date(note.created_at + 'Z').getTime() - new Date(prevNote.created_at + 'Z').getTime()
               : Infinity;
             const isSameSender = prevNote && prevNote.user_id === note.user_id && timeDiff <= GROUP_TIME_WINDOW;
 
+            // Date divider: show when crossing a day boundary
+            const showDateDivider = !prevNote ||
+              new Date(note.created_at + 'Z').toLocaleDateString() !== new Date(prevNote.created_at + 'Z').toLocaleDateString();
+
             return (
-              <NoteRow
-                key={note.id}
-                note={note}
-                isSameSender={!!isSameSender}
-                userName={user?.display_name || user?.username || "User"}
-                searchQuery={searchTerm}
-              />
+              <div key={note.id}>
+                {showDateDivider && <DateDivider date={note.created_at} />}
+                <NoteRow
+                  note={note}
+                  isSameSender={!!isSameSender}
+                  userName={user?.display_name || user?.username || "User"}
+                  searchQuery={searchTerm}
+                />
+              </div>
             );
           })}
         </main>
@@ -208,7 +235,7 @@ function NoteRow({
     setShowDeleteConfirm(false);
   };
 
-  const timeStr = new Date(note.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const timeStr = new Date(note.created_at + 'Z').toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
   // Highlight search matches
   const highlightText = (text: string) => {
@@ -253,21 +280,33 @@ function NoteRow({
             <textarea
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
-              className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-xl border border-[#5865f2] focus:outline-none resize-none min-h-[80px] text-[14px]"
+              className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-xl border border-[#5865f2] focus:outline-none resize-none min-h-[200px] text-[15px] leading-snug"
               autoFocus
-              onKeyDown={(e) => { if (e.key === "Escape") setIsEditing(false); }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setIsEditing(false);
+                } else if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSave();
+                }
+              }}
             />
-            <div className="flex gap-2 mt-1.5">
-              <button className="px-3 py-1.5 text-[13px] bg-[#5865f2] text-white rounded-lg font-medium hover:bg-[#4752c4] flex items-center gap-1 transition-colors" onClick={handleSave}>
-                <Check className="w-3.5 h-3.5" /> Save
-              </button>
-              <button className="px-3 py-1.5 text-[13px] text-[#949ba4] hover:text-white flex items-center gap-1 transition-colors" onClick={() => setIsEditing(false)}>
-                <X className="w-3.5 h-3.5" /> Cancel
-              </button>
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[11px] text-[#949ba4]">
+                escape to cancel · enter to save
+              </span>
+              <div className="flex gap-2">
+                <button className="px-3 py-1.5 text-[13px] text-[#949ba4] hover:text-white flex items-center gap-1 transition-colors" onClick={() => setIsEditing(false)}>
+                  <X className="w-3.5 h-3.5" /> Cancel
+                </button>
+                <button className="px-3 py-1.5 text-[13px] bg-[#5865f2] text-white rounded-lg font-medium hover:bg-[#4752c4] flex items-center gap-1 transition-colors" onClick={handleSave}>
+                  <Check className="w-3.5 h-3.5" /> Save
+                </button>
+              </div>
             </div>
           </div>
         ) : (
-          <div className="text-[15px] text-[#dbdee1] leading-snug break-words whitespace-pre-wrap">
+          <div className="text-[15px] text-[#dbdee1] leading-snug break-words whitespace-pre-wrap select-text">
             {note.content_type === "markdown" ? (
               <ReactMarkdown>{note.content}</ReactMarkdown>
             ) : (

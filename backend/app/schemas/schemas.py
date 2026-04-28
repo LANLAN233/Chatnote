@@ -214,6 +214,7 @@ class NoteCreateWithClassify(BaseModel):
     content: str = Field(..., min_length=1)
     server_name: str | None = None
     channel_name: str | None = None
+    channel_id: int | None = None
     auto_classify: bool = True
 
 
