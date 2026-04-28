@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   BookOpen, Clock, ArrowRight, Star, Hash, Zap,
-  Flame, TrendingUp, Tag, Loader2, Sparkles, RefreshCw
+  Flame, TrendingUp, Tag, Inbox, Loader2, Sparkles, RefreshCw
 } from "lucide-react";
 import { statsApi, aiApi, scheduleApi, inboxApi } from "../../services";
 import { useServerStore, useChannelStore } from "../../stores";
