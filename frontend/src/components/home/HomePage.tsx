@@ -11,10 +11,11 @@ import HomeConsolePanel from "./HomeConsolePanel";
 import ScheduleImportPanel from "./ScheduleImportPanel";
 import HomeInboxPanel from "./HomeInboxPanel";
 import SmartInput from "../common/SmartInput";
-import type { StatsData, SmartCreateResult, Schedule, Note, Channel } from "../../types";
+import type { StatsData, SmartCreateResult, Schedule, Note, Channel, RecentNote } from "../../types";
 
 interface OutletContext {
-  homeTab: "overview" | "console" | "import" | "inbox";
+  homeTab: "overview" | "console" | "import" | "inbox" | "recent";
+  setHomeTab: (tab: "overview" | "console" | "import" | "inbox" | "recent") => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -139,6 +140,7 @@ function ScheduleCountdown({ schedules }: { schedules: Schedule[] }) {
 /* ------------------------------------------------------------------ */
 function OverviewTab() {
   const navigate = useNavigate();
+  const { setHomeTab } = useOutletContext<OutletContext>();
   const { fetchServers } = useServerStore();
   const { fetchChannels } = useChannelStore();
   const [quickNote, setQuickNote] = useState("");
@@ -229,12 +231,13 @@ function OverviewTab() {
     }
   };
 
-  const handleNoteClick = (note: Note) => {
+  const handleNoteClick = (note: Note | RecentNote) => {
     setShowSearch(false);
-    navigate(`/server/0/channel/${note.channel_id}`);
+    const serverId = "server_id" in note ? note.server_id : 0;
+    navigate(`/server/${serverId}/channel/${note.channel_id}`);
   };
 
-  const recentNotes = stats?.recent_notes || [];
+  const recentNotes: RecentNote[] = stats?.recent_notes || [];
   const totalNotes = stats?.total_notes ?? 0;
   const studyStreak = stats?.study_streak ?? 0;
   const weeklyTrend = stats?.weekly_trend || [];
@@ -419,7 +422,10 @@ function OverviewTab() {
                   <h3 className="text-white font-bold flex items-center gap-2">
                     <Star size={18} className="text-yellow-400" /> Recent Activity
                   </h3>
-                  <button className="text-[#5865f2] text-xs font-bold hover:underline flex items-center gap-1">
+                  <button
+                    onClick={() => setHomeTab("recent")}
+                    className="text-[#5865f2] text-xs font-bold hover:underline flex items-center gap-1"
+                  >
                     View all <ArrowRight size={14} />
                   </button>
                 </div>
@@ -434,7 +440,9 @@ function OverviewTab() {
                         <div className="bg-[#1e1f22] p-1.5 rounded-lg">
                           <Hash size={14} className="text-[#5865f2]" />
                         </div>
-                        <span className="text-[11px] font-black text-[#949ba4] uppercase tracking-tighter">ch#{note.channel_id}</span>
+                        <span className="text-[11px] font-black text-[#949ba4] uppercase tracking-tighter">
+                          #{note.channel_name}
+                        </span>
                       </div>
                       <p className="text-[#dbdee1] text-sm line-clamp-2 mb-4 group-hover:text-white transition-colors leading-relaxed">
                         {note.content}
@@ -592,12 +600,91 @@ function OverviewTab() {
   );
 }
 
+function RecentActivityPanel() {
+  const navigate = useNavigate();
+  const [stats, setStats] = useState<StatsData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadStats = useCallback(async () => {
+    if (!localStorage.getItem("token")) return;
+    setLoading(true);
+    try {
+      const { data } = await statsApi.get();
+      if (data.data) setStats(data.data as StatsData);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  const handleNoteClick = (note: RecentNote) => {
+    navigate(`/server/${note.server_id}/channel/${note.channel_id}`);
+  };
+
+  const recentNotes: RecentNote[] = stats?.recent_notes || [];
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <header className="flex items-center justify-between mb-2">
+        <h2 className="text-white font-bold flex items-center gap-2">
+          <Star size={20} className="text-yellow-400" /> 最近活动
+        </h2>
+        <span className="text-[#949ba4] text-xs font-bold">{recentNotes.length} 条笔记</span>
+      </header>
+
+      {loading && (
+        <div className="flex items-center justify-center py-12 text-[#949ba4]">
+          <Loader2 size={24} className="animate-spin mr-2" /> 加载中...
+        </div>
+      )}
+
+      {!loading && recentNotes.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+          <Star size={48} className="mb-4 opacity-20" />
+          <p className="text-sm italic">暂无活动记录</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {recentNotes.map((note) => (
+          <div
+            key={note.id}
+            onClick={() => handleNoteClick(note)}
+            className="bg-[#2b2d31] p-5 rounded-xl border border-[#1e1f22] hover:border-[#5865f2] transition-all cursor-pointer group shadow-sm"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div className="bg-[#1e1f22] p-1.5 rounded-lg">
+                <Hash size={14} className="text-[#5865f2]" />
+              </div>
+              <span className="text-[11px] font-black text-[#949ba4] uppercase tracking-tighter">
+                #{note.channel_name}
+              </span>
+            </div>
+            <p className="text-[#dbdee1] text-sm line-clamp-3 mb-4 group-hover:text-white transition-colors leading-relaxed whitespace-pre-wrap">
+              {note.content}
+            </p>
+            <div className="flex items-center justify-between border-t border-[#1e1f22] pt-3">
+              <span className="text-[10px] text-[#949ba4] font-bold">
+                {new Date(note.created_at).toLocaleDateString()}
+              </span>
+              <ArrowRight size={12} className="text-[#949ba4] opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const { homeTab } = useOutletContext<OutletContext>();
 
   return (
     <div className="flex-1 bg-[#313338] flex flex-col h-full overflow-hidden">
       {homeTab === "overview" && <OverviewTab />}
+      {homeTab === "recent" && <RecentActivityPanel />}
       {homeTab === "inbox" && <HomeInboxPanel />}
       {homeTab === "console" && <HomeConsolePanel />}
       {homeTab === "import" && <ScheduleImportPanel />}

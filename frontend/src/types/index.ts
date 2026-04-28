@@ -170,6 +170,12 @@ export interface TopTagItem {
   count: number;
 }
 
+export interface RecentNote extends Note {
+  channel_name: string;
+  server_id: number;
+  server_name: string;
+}
+
 export interface StatsData {
   total_servers: number;
   total_channels: number;
@@ -180,7 +186,7 @@ export interface StatsData {
   top_tags: TopTagItem[];
   yesterday_notes: Note[];
   inbox_pending_count: number;
-  recent_notes: Note[];
+  recent_notes: RecentNote[];
 }
 
 export interface InboxItem {

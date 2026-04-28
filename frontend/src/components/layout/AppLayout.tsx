@@ -9,7 +9,7 @@ import { statsApi } from "../../services";
 export default function AppLayout() {
   const { fetchServers } = useServerStore();
   const location = useLocation();
-  const [homeTab, setHomeTab] = useState<"overview" | "console" | "import" | "inbox">("overview");
+  const [homeTab, setHomeTab] = useState<"overview" | "console" | "import" | "inbox" | "recent">("overview");
   const [inboxBadge, setInboxBadge] = useState(0);
 
   const loadBadge = useCallback(async () => {
@@ -42,7 +42,7 @@ export default function AppLayout() {
       {isHomePage && <HomeSidebar activeTab={homeTab} onTabChange={setHomeTab} inboxBadge={inboxBadge} />}
       {showChannelList && <ChannelList />}
       <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0 bg-[#313338]">
-        <Outlet context={{ homeTab }} />
+        <Outlet context={{ homeTab, setHomeTab }} />
       </main>
     </div>
   );

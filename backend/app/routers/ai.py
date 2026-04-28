@@ -179,8 +179,10 @@ async def get_stats(
     note_count = await db.execute(
         select(func.count()).select_from(Note).where(Note.user_id == current_user.id)
     )
+    from sqlalchemy.orm import joinedload
     recent_result = await db.execute(
         select(Note)
+        .options(joinedload(Note.channel))
         .where(Note.user_id == current_user.id)
         .order_by(Note.created_at.desc())
         .limit(10)
@@ -303,7 +305,13 @@ async def get_stats(
             ],
             "inbox_pending_count": inbox_pending_count,
             "recent_notes": [
-                NoteResponse.model_validate(n).model_dump() for n in recent_notes
+                {
+                    **NoteResponse.model_validate(n).model_dump(),
+                    "channel_name": n.channel.name if n.channel else "Unknown",
+                    "server_id": n.channel.server_id if n.channel else 0,
+
+                }
+                for n in recent_notes
             ],
         },
     )
