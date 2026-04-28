@@ -82,7 +82,7 @@ export default function SmartInput({
       const cursorPos = inputRef.current?.selectionStart ?? value.length;
       const beforeCursor = value.slice(0, cursorPos);
       const patterns: Record<string, RegExp> = {
-        server: / @(\S*)$/,
+        server: /@(\S*)$/,
         channel: /#(\S*)$/,
         skill: /\$(\S*)$/,
         file: /@file:(\S*)$/,
