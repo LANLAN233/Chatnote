@@ -158,3 +158,22 @@ class ConsoleMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     session: Mapped["ConsoleSession"] = relationship(back_populates="messages")
+
+
+class InboxItem(Base):
+    __tablename__ = "inbox_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_suggested_server: Mapped[str | None] = mapped_column(String, nullable=True)
+    ai_suggested_channel: Mapped[str | None] = mapped_column(String, nullable=True)
+    ai_tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="pending")  # pending, archived
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user: Mapped["User"] = relationship()

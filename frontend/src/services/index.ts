@@ -7,6 +7,9 @@ import type {
   ClassificationResult,
   ConsoleResult,
   ConsoleSession,
+  InboxItem,
+  InboxItemArchiveRequest,
+  InboxItemCreate,
   Note,
   NoteCreate,
   NoteList,
@@ -110,6 +113,23 @@ export const consoleSessionApi = {
 
 export const statsApi = {
   get: () => api.get<ApiResponse<StatsData>>("/stats"),
+  getDailySummary: (date?: string) =>
+    api.get<ApiResponse<{ summary: string; keywords: Array<{ keyword: string; note_ids: number[] }>; total_notes: number; highlight_note_id: number | null }>>("/daily-summary", { params: date ? { date } : undefined }),
+};
+
+export const inboxApi = {
+  list: (status?: string) =>
+    api.get<ApiResponse<InboxItem[]>>("/inbox", { params: status ? { status } : undefined }),
+  create: (data: InboxItemCreate) =>
+    api.post<ApiResponse<InboxItem>>("/inbox", data),
+  delete: (id: number) =>
+    api.delete<ApiResponse<null>>(`/inbox/${id}`),
+  update: (id: number, data: Partial<InboxItemCreate>) =>
+    api.put<ApiResponse<InboxItem>>(`/inbox/${id}`, data),
+  aiSuggest: (id: number) =>
+    api.post<ApiResponse<InboxItem>>(`/inbox/${id}/ai-suggest`),
+  archive: (id: number, data: InboxItemArchiveRequest) =>
+    api.post<ApiResponse<{ note: Note; server_id: number; channel_id: number; inbox_item_id: number }>>(`/inbox/${id}/archive`, data),
 };
 
 export { attachmentApi, type Attachment } from "./attachmentApi";

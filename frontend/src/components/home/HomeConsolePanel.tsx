@@ -12,20 +12,34 @@ function useConsoleSuggestions() {
 
   return useCallback((filter: string, type: string): string[] => {
     const f = filter.toLowerCase();
+    let items: string[] = [];
     switch (type) {
       case "server":
-        return servers.filter((s) => s.name.toLowerCase().includes(f)).map((s) => s.name);
+        items = servers.filter((s) => s.name.toLowerCase().includes(f)).map((s) => s.name);
+        break;
       case "channel":
-        return channels.filter((c) => c.name.toLowerCase().includes(f)).map((c) => c.name);
+        items = channels.filter((c) => c.name.toLowerCase().includes(f)).map((c) => c.name);
+        break;
       case "skill":
-        return SKILL_LIST.filter((s) => s.includes(f));
+        items = SKILL_LIST.filter((s) => s.includes(f));
+        break;
       case "command":
-        return COMMAND_LIST.filter((c) => c.includes(f));
+        items = COMMAND_LIST.filter((c) => c.includes(f));
+        break;
       case "file":
-        return [];
+        items = [];
+        break;
       default:
-        return [];
+        items = [];
     }
+    // Sort: startsWith matches first, then includes matches
+    return items.sort((a, b) => {
+      const aStarts = a.toLowerCase().startsWith(f);
+      const bStarts = b.toLowerCase().startsWith(f);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      return a.localeCompare(b);
+    });
   }, [servers, channels]);
 }
 

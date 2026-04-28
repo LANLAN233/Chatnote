@@ -446,3 +446,42 @@ class ScheduleImportResponse(BaseModel):
     servers: list[ScheduleImportServer]
     schedules: list[ScheduleResponse]
     suggestions: list[ScheduleImportSuggestion]
+
+
+class InboxItemCreate(BaseModel):
+    content: str = Field(..., min_length=1)
+    raw_input: str | None = None
+
+
+class InboxItemUpdate(BaseModel):
+    content: str | None = Field(None, min_length=1)
+    ai_suggested_server: str | None = None
+    ai_suggested_channel: str | None = None
+    ai_tags: str | None = None
+    ai_summary: str | None = None
+    ai_confidence: float | None = None
+    status: str | None = None
+
+
+class InboxItemArchiveRequest(BaseModel):
+    server_id: int | None = None
+    channel_id: int | None = None
+    create_server_name: str | None = None
+    create_channel_name: str | None = None
+
+
+class InboxItemResponse(BaseModel):
+    id: int
+    user_id: int
+    content: str
+    raw_input: str | None
+    ai_suggested_server: str | None
+    ai_suggested_channel: str | None
+    ai_tags: str | None
+    ai_summary: str | None
+    ai_confidence: float | None
+    status: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    model_config = {"from_attributes": True}

@@ -9,7 +9,7 @@ from app.config import settings
 from app.database import async_session, init_db
 from app.logging_config import setup_logging
 from app.plugins import plugin_manager
-from app.routers import ai, attachments, auth, channels, console, export, files, notes, plugins, schedules, servers
+from app.routers import ai, attachments, auth, channels, console, export, files, inbox, notes, plugins, schedules, servers
 from app.routers.settings import router as settings_router
 from app.routers import websocket as ws_router
 
@@ -44,6 +44,7 @@ app.include_router(channels.router)
 app.include_router(notes.router)
 app.include_router(schedules.router)
 app.include_router(ai.router)
+app.include_router(inbox.router)
 app.include_router(console.router)
 app.include_router(plugins.router)
 app.include_router(attachments.router)

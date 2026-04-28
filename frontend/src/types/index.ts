@@ -155,11 +155,59 @@ export interface SmartCreateResult {
   channel_id: number;
 }
 
+export interface WeeklyTrendItem {
+  date: string;
+  count: number;
+}
+
+export interface ServerDistributionItem {
+  server_name: string;
+  note_count: number;
+}
+
+export interface TopTagItem {
+  tag: string;
+  count: number;
+}
+
 export interface StatsData {
   total_servers: number;
   total_channels: number;
   total_notes: number;
+  study_streak: number;
+  weekly_trend: WeeklyTrendItem[];
+  server_distribution: ServerDistributionItem[];
+  top_tags: TopTagItem[];
+  yesterday_notes: Note[];
+  inbox_pending_count: number;
   recent_notes: Note[];
+}
+
+export interface InboxItem {
+  id: number;
+  user_id: number;
+  content: string;
+  raw_input: string | null;
+  ai_suggested_server: string | null;
+  ai_suggested_channel: string | null;
+  ai_tags: string | null;
+  ai_summary: string | null;
+  ai_confidence: number | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InboxItemCreate {
+  content: string;
+  raw_input?: string;
+}
+
+export interface InboxItemArchiveRequest {
+  server_id?: number;
+  channel_id?: number;
+  create_server_name?: string;
+  create_channel_name?: string;
 }
 
 export interface ConsoleLog {

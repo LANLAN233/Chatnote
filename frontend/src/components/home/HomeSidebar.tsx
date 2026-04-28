@@ -1,17 +1,19 @@
-import { LayoutDashboard, Terminal, Upload } from "lucide-react";
+import { LayoutDashboard, Terminal, Upload, Inbox } from "lucide-react";
 
 interface HomeSidebarProps {
-  activeTab: "overview" | "console" | "import";
-  onTabChange: (tab: "overview" | "console" | "import") => void;
+  activeTab: "overview" | "console" | "import" | "inbox";
+  onTabChange: (tab: "overview" | "console" | "import" | "inbox") => void;
+  inboxBadge?: number;
 }
 
 const tabs = [
   { id: "overview" as const, label: "概要", Icon: LayoutDashboard },
+  { id: "inbox" as const, label: "待分类", Icon: Inbox },
   { id: "console" as const, label: "总控制台", Icon: Terminal },
   { id: "import" as const, label: "日程表导入", Icon: Upload },
 ];
 
-export default function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps) {
+export default function HomeSidebar({ activeTab, onTabChange, inboxBadge = 0 }: HomeSidebarProps) {
   return (
     <div className="w-60 bg-[#2b2d31] flex flex-col h-full flex-shrink-0 select-none">
       {/* Header */}
@@ -23,6 +25,7 @@ export default function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps
         <div className="space-y-[2px]">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
+            const showBadge = tab.id === "inbox" && inboxBadge > 0;
             return (
               <button
                 key={tab.id}
@@ -37,9 +40,14 @@ export default function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps
                   size={20}
                   className={isActive ? "text-[#5865F2]" : "text-[#80848e]"}
                 />
-                <span className="truncate text-[15px] font-bold leading-tight">
+                <span className="truncate text-[15px] font-bold leading-tight flex-1">
                   {tab.label}
                 </span>
+                {showBadge && (
+                  <span className="bg-[#f23f43] text-white text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                    {inboxBadge > 99 ? "99+" : inboxBadge}
+                  </span>
+                )}
               </button>
             );
           })}

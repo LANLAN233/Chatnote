@@ -77,6 +77,7 @@ export default function ConsoleCore({
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionType, setSuggestionType] = useState("");
+  const [suggestionFilter, setSuggestionFilter] = useState("");
 
   const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -268,6 +269,7 @@ export default function ConsoleCore({
           setSelectedSuggestion(0);
           setShowSuggestions(true);
           setSuggestionType(detected.type);
+          setSuggestionFilter(detected.filter);
           return;
         }
       }
@@ -802,34 +804,46 @@ export default function ConsoleCore({
 
                 {showSuggestions && suggestions.length > 0 && (
                   <div className="absolute left-0 right-0 bottom-full mb-1 bg-[#2b2d31] border border-[#3f4147] rounded-lg shadow-xl max-h-48 overflow-y-auto z-50">
-                    {suggestions.map((s, i) => (
-                      <button
-                        key={s}
-                        onClick={() => applySuggestion(s)}
-                        className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                          i === selectedSuggestion
-                            ? "bg-[#5865f2]/20 text-white"
-                            : "text-[#949ba4] hover:bg-[#3f4147]"
-                        }`}
-                      >
-                        {suggestionType === "skill" && (
-                          <span className="text-[#5865f2] mr-1">$</span>
-                        )}
-                        {suggestionType === "command" && (
-                          <span className="text-[#5865f2] mr-1">/</span>
-                        )}
-                        {suggestionType === "file" && (
-                          <span className="text-[#5865f2] mr-1">@file:</span>
-                        )}
-                        {suggestionType === "server" && (
-                          <span className="text-[#f0c040] mr-1">@</span>
-                        )}
-                        {suggestionType === "channel" && (
-                          <span className="text-[#5865f2] mr-1">#</span>
-                        )}
-                        {s}
-                      </button>
-                    ))}
+                    {suggestions.map((s, i) => {
+                      const lowerS = s.toLowerCase();
+                      const lowerF = suggestionFilter.toLowerCase();
+                      const idx = lowerS.indexOf(lowerF);
+                      const prefix = idx >= 0 ? s.slice(0, idx) : s;
+                      const match = idx >= 0 ? s.slice(idx, idx + suggestionFilter.length) : "";
+                      const suffix = idx >= 0 ? s.slice(idx + suggestionFilter.length) : "";
+                      return (
+                        <button
+                          key={s}
+                          onClick={() => applySuggestion(s)}
+                          className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                            i === selectedSuggestion
+                              ? "bg-[#5865f2]/20 text-white"
+                              : "text-[#949ba4] hover:bg-[#3f4147]"
+                          }`}
+                        >
+                          {suggestionType === "skill" && (
+                            <span className="text-[#5865f2] mr-1">$</span>
+                          )}
+                          {suggestionType === "command" && (
+                            <span className="text-[#5865f2] mr-1">/</span>
+                          )}
+                          {suggestionType === "file" && (
+                            <span className="text-[#5865f2] mr-1">@file:</span>
+                          )}
+                          {suggestionType === "server" && (
+                            <span className="text-[#f0c040] mr-1">@</span>
+                          )}
+                          {suggestionType === "channel" && (
+                            <span className="text-[#5865f2] mr-1">#</span>
+                          )}
+                          {prefix}
+                          {match && (
+                            <span className="text-[#5865f2] font-bold">{match}</span>
+                          )}
+                          {suffix}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
