@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Home, MessageSquare, Calendar, Puzzle, Plus, Settings } from "lucide-react";
+import { Home, Terminal, Calendar, Puzzle, Plus, Settings } from "lucide-react";
 import { useServerStore, useAuthStore } from "../../stores";
 import ServerModal from "../servers/ServerModal";
 import SettingsModal from "../settings/SettingsModal";
@@ -18,7 +18,7 @@ export default function Sidebar() {
   const currentPath = location.pathname;
 
   const navItems = [
-    { id: "chat", Icon: MessageSquare, tooltip: "Study Chat", path: "/", match: /^\/$|^\/server\// },
+    { id: "console", Icon: Terminal, tooltip: "Console", path: "/console", match: /^\/console/ },
     { id: "calendar", Icon: Calendar, tooltip: "Schedule", path: "/calendar", match: /^\/calendar/ },
     { id: "plugins", Icon: Puzzle, tooltip: "Plugins & Bots", path: "/plugins", match: /^\/plugins/ },
   ];
@@ -66,7 +66,11 @@ export default function Sidebar() {
                 }`}
               onClick={() => {
                 setCurrentServer(server.id);
-                navigate(`/server/${server.id}`);
+                if (server.primary_channel_id) {
+                  navigate(`/server/${server.id}/channel/${server.primary_channel_id}`);
+                } else {
+                  navigate(`/server/${server.id}`);
+                }
               }}
               onContextMenu={(e) => handleContextMenu(e, server.id)}
               title={server.name}

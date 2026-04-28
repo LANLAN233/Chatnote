@@ -27,6 +27,7 @@ export interface Server {
   icon: string | null;
   description: string | null;
   sort_order: number;
+  primary_channel_id?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -40,6 +41,16 @@ export interface Channel {
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface Attachment {
+  id: number;
+  note_id: number;
+  filename: string;
+  file_path: string;
+  file_type: string | null;
+  file_size: number;
+  created_at: string;
 }
 
 export interface Note {
@@ -156,6 +167,25 @@ export interface ConsoleLog {
   type: "input" | "output" | "error" | "system";
   content: string;
   timestamp: Date;
+}
+
+export interface ConsoleMessage {
+  id: number;
+  session_id: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  type: string;
+  created_at: string;
+}
+
+export interface ConsoleSession {
+  id: number;
+  user_id: number;
+  server_id: number | null;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages?: ConsoleMessage[];
 }
 
 export interface RepeatRule {

@@ -6,6 +6,7 @@ import type {
   ChannelUpdate,
   ClassificationResult,
   ConsoleResult,
+  ConsoleSession,
   Note,
   NoteCreate,
   NoteList,
@@ -86,13 +87,23 @@ export const apiKeyApi = {
 };
 
 export const serverConsoleApi = {
-  execute: (serverId: number, input: string, aiEnabled = false) =>
-    api.post<ApiResponse<ConsoleResult>>(`/server/${serverId}/console/execute`, { input, ai_enabled: aiEnabled }),
+  execute: (serverId: number, input: string, aiEnabled = false, sessionId?: number) =>
+    api.post<ApiResponse<ConsoleResult>>(`/server/${serverId}/console/execute`, { input, ai_enabled: aiEnabled, session_id: sessionId }),
 };
 
 export const consoleApi = {
-  execute: (input: string, aiEnabled = false) =>
-    api.post<ApiResponse<ConsoleResult | SmartCreateResult>>("/console/execute", { input, ai_enabled: aiEnabled }),
+  execute: (input: string, aiEnabled = false, sessionId?: number) =>
+    api.post<ApiResponse<ConsoleResult | SmartCreateResult>>("/console/execute", { input, ai_enabled: aiEnabled, session_id: sessionId }),
+};
+
+export const consoleSessionApi = {
+  list: () => api.get<ApiResponse<ConsoleSession[]>>("/console/sessions"),
+  create: (data: { title?: string; server_id?: number }) =>
+    api.post<ApiResponse<ConsoleSession>>("/console/sessions", data),
+  get: (id: number) => api.get<ApiResponse<ConsoleSession>>(`/console/sessions/${id}`),
+  update: (id: number, data: { title?: string }) =>
+    api.put<ApiResponse<ConsoleSession>>(`/console/sessions/${id}`, data),
+  delete: (id: number) => api.delete<ApiResponse<null>>(`/console/sessions/${id}`),
 };
 
 export const statsApi = {

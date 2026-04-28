@@ -26,7 +26,8 @@ async def test_list_channels(client, auth_headers):
     response = await client.get(f"/api/servers/{server_id}/channels", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
-    assert len(data["data"]) == 2
+    # Server creation auto-creates a primary "General" channel
+    assert len(data["data"]) == 3
 
 
 @pytest.mark.asyncio

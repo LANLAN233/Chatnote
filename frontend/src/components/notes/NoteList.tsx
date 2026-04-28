@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useNoteStore, useChannelStore, useAuthStore } from "../../stores";
+import type { Attachment } from "../../types";
 import NoteEditor from "./NoteEditor";
 import MentionHighlight from "../common/MentionHighlight";
 import AttachmentCard from "./AttachmentCard";
@@ -186,7 +187,7 @@ function NoteRow({
   userName,
   searchQuery,
 }: {
-  note: { id: number; content: string; content_type: string; created_at: string; is_edited: boolean; ai_category?: string | null };
+  note: { id: number; content: string; content_type: string; created_at: string; is_edited: boolean; ai_category?: string | null; attachments?: Attachment[] };
   isSameSender: boolean;
   userName: string;
   searchQuery: string;

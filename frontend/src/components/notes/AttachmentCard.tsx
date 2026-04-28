@@ -1,14 +1,5 @@
 import { FileText, Image, Table2, Code, File } from "lucide-react";
-
-interface Attachment {
-  id: number;
-  note_id: number;
-  filename: string;
-  file_path: string;
-  file_type: string;
-  file_size: number;
-  created_at: string;
-}
+import type { Attachment } from "../../types";
 
 interface AttachmentCardProps {
   attachments: Attachment[];
@@ -20,7 +11,8 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-function getCategory(mimeType: string): "image" | "code" | "spreadsheet" | "document" | "other" {
+function getCategory(mimeType: string | null): "image" | "code" | "spreadsheet" | "document" | "other" {
+  if (!mimeType) return "other";
   if (mimeType.startsWith("image/")) return "image";
   if (mimeType.includes("spreadsheet") || mimeType.includes("excel") || mimeType === "text/csv") return "spreadsheet";
   const ext = mimeType.split(".").pop() || "";

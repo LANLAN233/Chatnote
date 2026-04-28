@@ -98,5 +98,7 @@ async def delete_channel(
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    if channel.type == "primary":
+        raise HTTPException(status_code=400, detail="Cannot delete the primary channel")
     await db.delete(channel)
     return ApiResponse(success=True, message="Channel deleted")

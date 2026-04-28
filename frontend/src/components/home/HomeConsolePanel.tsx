@@ -46,8 +46,8 @@ export default function HomeConsolePanel() {
         "AI Sub-engine connected.",
         "Capturing local knowledge for #general.",
       ]}
-      executeFn={async (text, aiEnabled) => {
-        const { data: response } = await consoleApi.execute(text, aiEnabled);
+      executeFn={async (text, aiEnabled, sessionId) => {
+        const { data: response } = await consoleApi.execute(text, aiEnabled, sessionId);
         return response.data as { type: string; content?: string; data?: unknown; note?: unknown; plugin_responses?: Array<{ plugin_name: string; message: string }> };
       }}
       getSuggestions={getSuggestions}

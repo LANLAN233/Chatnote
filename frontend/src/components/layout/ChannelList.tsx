@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { Hash, Plus, ChevronDown, Terminal, Book, Folder, Mic, Headphones, Settings, Server } from "lucide-react";
+import { Hash, Plus, ChevronDown, Book, Folder, Mic, Headphones, Settings } from "lucide-react";
 import { useServerStore, useChannelStore, useAuthStore } from "../../stores";
 import ChannelModal from "../channels/ChannelModal";
 
@@ -21,7 +21,6 @@ export default function ChannelList() {
 
   const currentServer = servers.find((s) => s.id === currentServerId);
   const isConsole = location.pathname === "/console";
-  const isServerConsole = location.pathname.startsWith("/server/") && location.pathname.endsWith("/console");
 
   useEffect(() => {
     if (currentServerId) {
@@ -55,32 +54,6 @@ export default function ChannelList() {
       </div>
 
       <div className="flex-1 overflow-y-auto pt-3 px-2 scrollbar-hide">
-        {/* Console */}
-        <div className="mb-4 space-y-[2px]">
-          <button
-            onClick={() => navigate("/console")}
-            className={`w-full text-left px-2 py-[6px] rounded flex items-center gap-2 group transition-colors
-              ${isConsole && !isServerConsole
-                ? "bg-[#3f4147] text-white"
-                : "text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
-              }`}
-          >
-            <Terminal size={20} className={isConsole && !isServerConsole ? "text-[#5865F2]" : "text-[#80848e]"} />
-            <span className="truncate text-[15px] font-bold leading-tight">全局控制台</span>
-          </button>
-          <button
-            onClick={() => currentServerId && navigate(`/server/${currentServerId}/console`)}
-            className={`w-full text-left px-2 py-[6px] rounded flex items-center gap-2 group transition-colors
-              ${isServerConsole
-                ? "bg-[#3f4147] text-white"
-                : "text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
-              }`}
-          >
-            <Server size={20} className={isServerConsole ? "text-[#5865F2]" : "text-[#80848e]"} />
-            <span className="truncate text-[15px] font-bold leading-tight">服务器控制台</span>
-          </button>
-        </div>
-
         {/* Channels */}
         <div className="mb-4">
           <div className="px-1 mb-1 flex items-center justify-between group cursor-pointer">
@@ -194,15 +167,20 @@ export default function ChannelList() {
             >
               Edit Channel
             </button>
-            <button
-              className="w-full px-4 py-2 text-left text-[13px] text-[#f23f43] hover:bg-[#f23f43]/10 transition-colors"
-              onClick={() => {
-                deleteChannel(currentServerId!, contextMenu.id);
-                setContextMenu(null);
-              }}
-            >
-              Delete Channel
-            </button>
+            {(() => {
+              const ch = channels.find((c) => c.id === contextMenu.id);
+              return ch && ch.type !== "primary" ? (
+                <button
+                  className="w-full px-4 py-2 text-left text-[13px] text-[#f23f43] hover:bg-[#f23f43]/10 transition-colors"
+                  onClick={() => {
+                    deleteChannel(currentServerId!, contextMenu.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  Delete Channel
+                </button>
+              ) : null;
+            })()}
           </div>
         </div>
       )}

@@ -66,6 +66,7 @@ class ServerResponse(BaseModel):
     icon: str | None
     description: str | None
     sort_order: int
+    primary_channel_id: int | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
 
@@ -163,12 +164,45 @@ class ClassifyResponse(BaseModel):
 class ConsoleExecuteRequest(BaseModel):
     input: str = Field(..., min_length=1)
     ai_enabled: bool = False
+    session_id: int | None = None
 
 
 class ConsoleExecuteResponse(BaseModel):
     type: str
     content: str | None = None
     data: object | None = None
+
+
+class ConsoleMessageResponse(BaseModel):
+    id: int
+    session_id: int
+    role: str
+    content: str
+    type: str
+    created_at: datetime.datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ConsoleSessionCreate(BaseModel):
+    title: str | None = "New Session"
+    server_id: int | None = None
+
+
+class ConsoleSessionUpdate(BaseModel):
+    title: str | None = None
+
+
+class ConsoleSessionResponse(BaseModel):
+    id: int
+    user_id: int
+    server_id: int | None
+    title: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    messages: list[ConsoleMessageResponse] | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class NoteCreateWithClassify(BaseModel):

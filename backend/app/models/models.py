@@ -131,3 +131,30 @@ class Plugin(Base):
     config: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON config data
     installed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ConsoleSession(Base):
+    __tablename__ = "console_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    server_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("servers.id", ondelete="CASCADE"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String, nullable=False, default="New Session")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user: Mapped["User"] = relationship()
+    messages: Mapped[list["ConsoleMessage"]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="ConsoleMessage.created_at")
+
+
+class ConsoleMessage(Base):
+    __tablename__ = "console_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey("console_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String, nullable=False, default="user")  # user, assistant, system
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    type: Mapped[str] = mapped_column(String, nullable=False, default="text")  # text, error, todo_created, plugin_response, clear, note
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    session: Mapped["ConsoleSession"] = relationship(back_populates="messages")
