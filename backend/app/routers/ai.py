@@ -160,6 +160,7 @@ async def smart_create_note(
     db.add(note)
     await db.flush()
     await db.refresh(note)
+    await db.refresh(note, ["attachments"])
 
     return ApiResponse(
         success=True,
@@ -191,10 +192,10 @@ async def get_stats(
     note_count = await db.execute(
         select(func.count()).select_from(Note).where(Note.user_id == current_user.id)
     )
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy.orm import joinedload, selectinload
     recent_result = await db.execute(
         select(Note)
-        .options(joinedload(Note.channel))
+        .options(joinedload(Note.channel), selectinload(Note.attachments))
         .where(Note.user_id == current_user.id)
         .order_by(Note.created_at.desc())
         .limit(10)
@@ -286,6 +287,7 @@ async def get_stats(
     yesterday = date.today() - timedelta(days=1)
     yest_result = await db.execute(
         select(Note)
+        .options(selectinload(Note.attachments))
         .where(
             Note.user_id == current_user.id,
             func.date(Note.created_at) == yesterday,

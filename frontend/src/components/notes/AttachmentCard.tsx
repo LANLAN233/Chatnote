@@ -38,7 +38,7 @@ export default function AttachmentCard({ attachments }: AttachmentCardProps) {
     <div className="mt-2 space-y-2">
       {attachments.map((att) => {
         const cat = getCategory(att.file_type);
-        const downloadUrl = `/api/attachments/note/${att.note_id}`;
+        const downloadUrl = `/uploads/${att.file_path}`;
 
         return (
           <div

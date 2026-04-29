@@ -3,6 +3,7 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Hash, Plus, ChevronDown, Book, Folder, Mic, Headphones, Settings } from "lucide-react";
 import { useServerStore, useChannelStore, useAuthStore } from "../../stores";
 import ChannelModal from "../channels/ChannelModal";
+import ServerFilesModal from "../servers/ServerFilesModal";
 
 export default function ChannelList() {
   const { servers, currentServerId } = useServerStore();
@@ -16,6 +17,7 @@ export default function ChannelList() {
   } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(true);
+  const [showFilesModal, setShowFilesModal] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -111,11 +113,17 @@ export default function ChannelList() {
             </span>
           </div>
           <div className="space-y-[2px]">
-            <button className="w-full text-left px-2 py-[6px] rounded flex items-center gap-2 transition-colors text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200">
+            <button
+              onClick={() => setShowFilesModal(true)}
+              className="w-full text-left px-2 py-[6px] rounded flex items-center gap-2 transition-colors text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
+            >
               <Book size={18} />
               <span className="text-[15px] font-medium leading-tight">library</span>
             </button>
-            <button className="w-full text-left px-2 py-[6px] rounded flex items-center gap-2 transition-colors text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200">
+            <button
+              onClick={() => setShowFilesModal(true)}
+              className="w-full text-left px-2 py-[6px] rounded flex items-center gap-2 transition-colors text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
+            >
               <Folder size={18} />
               <span className="text-[15px] font-medium leading-tight">my-assets</span>
             </button>
@@ -193,6 +201,14 @@ export default function ChannelList() {
             setEditingChannel(null);
           }}
           channel={editingChannel || undefined}
+        />
+      )}
+
+      {showFilesModal && currentServer && (
+        <ServerFilesModal
+          serverId={currentServer.id}
+          serverName={currentServer.name}
+          onClose={() => setShowFilesModal(false)}
         />
       )}
     </div>

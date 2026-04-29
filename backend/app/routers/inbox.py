@@ -254,6 +254,7 @@ async def inbox_archive(
     item.status = "archived"
     await db.flush()
     await db.refresh(note)
+    await db.refresh(note, ["attachments"])
 
     return ApiResponse(
         success=True,
