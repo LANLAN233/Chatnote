@@ -53,6 +53,13 @@ export interface Attachment {
   created_at: string;
 }
 
+export interface NoteReplyPreview {
+  id: number;
+  content: string;
+  user_id: number;
+  created_at: string;
+}
+
 export interface Note {
   id: number;
   channel_id: number;
@@ -64,6 +71,10 @@ export interface Note {
   ai_summary: string | null;
   ai_confidence: number | null;
   ai_tags: string | null;
+  is_pinned: boolean;
+  reply_to_id: number | null;
+  user_tags: string | null;
+  reply_preview?: NoteReplyPreview | null;
   is_edited: boolean;
   created_at: string;
   updated_at: string;
@@ -120,6 +131,8 @@ export interface NoteCreate {
   ai_summary?: string;
   ai_confidence?: number;
   ai_tags?: string;
+  reply_to_id?: number;
+  user_tags?: string;
 }
 
 export interface NoteUpdate {
@@ -129,6 +142,7 @@ export interface NoteUpdate {
   ai_summary?: string;
   ai_confidence?: number;
   ai_tags?: string;
+  user_tags?: string;
 }
 
 export interface ClassificationResult {
@@ -346,4 +360,14 @@ export interface ScheduleImportResult {
   servers: ScheduleImportServer[];
   schedules: Schedule[];
   suggestions: ScheduleImportSuggestion[];
+}
+
+export interface ServerFile {
+  id: number;
+  filename: string;
+  file_type: string;
+  file_size: number;
+  file_category: string;
+  created_at: string;
+  url: string;
 }

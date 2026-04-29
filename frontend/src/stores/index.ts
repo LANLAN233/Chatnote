@@ -187,7 +187,7 @@ interface NoteState {
   isLoading: boolean;
   realtimeNotes: Note[];
   fetchNotes: (channelId: number, search?: string) => Promise<void>;
-  createNote: (data: { channel_id: number; content: string; content_type?: string; auto_classify?: boolean }) => Promise<Note | null>;
+  createNote: (data: { channel_id: number; content: string; content_type?: string; auto_classify?: boolean; reply_to_id?: number; user_tags?: string }) => Promise<Note | null>;
   smartCreateNote: (content: string, autoClassify?: boolean) => Promise<void>;
   updateNote: (id: number, data: { content?: string }) => Promise<void>;
   deleteNote: (id: number) => Promise<void>;
@@ -232,6 +232,8 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       channel_id: data.channel_id,
       content: data.content,
       content_type: data.content_type || "markdown",
+      reply_to_id: data.reply_to_id,
+      user_tags: data.user_tags,
     });
     const note = response.data as Note | null;
     await get().fetchNotes(data.channel_id);

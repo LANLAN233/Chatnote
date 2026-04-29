@@ -109,6 +109,8 @@ class NoteCreate(BaseModel):
     ai_summary: str | None = None
     ai_confidence: float | None = None
     ai_tags: str | None = None
+    reply_to_id: int | None = None
+    user_tags: str | None = None
 
 
 class NoteUpdate(BaseModel):
@@ -118,6 +120,16 @@ class NoteUpdate(BaseModel):
     ai_summary: str | None = None
     ai_confidence: float | None = None
     ai_tags: str | None = None
+    user_tags: str | None = None
+
+
+class NoteReplyPreview(BaseModel):
+    id: int
+    content: str
+    user_id: int
+    created_at: datetime.datetime
+
+    model_config = {"from_attributes": True}
 
 
 class NoteResponse(BaseModel):
@@ -131,9 +143,14 @@ class NoteResponse(BaseModel):
     ai_summary: str | None
     ai_confidence: float | None
     ai_tags: str | None
+    is_pinned: bool
+    reply_to_id: int | None
+    user_tags: str | None
+    reply_preview: NoteReplyPreview | None = None
     is_edited: bool
     created_at: datetime.datetime
     updated_at: datetime.datetime
+    attachments: list[AttachmentResponse] | None = None
 
     model_config = {"from_attributes": True}
 

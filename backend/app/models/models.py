@@ -86,6 +86,10 @@ class Note(Base):
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     ai_tags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 12: message interactions
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    reply_to_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
+    user_tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -93,6 +97,7 @@ class Note(Base):
     channel: Mapped["Channel"] = relationship(back_populates="notes")
     user: Mapped["User"] = relationship()
     attachments: Mapped[list["Attachment"]] = relationship("Attachment", back_populates="note", cascade="all, delete-orphan")
+    reply_to: Mapped["Note | None"] = relationship("Note", remote_side="Note.id", backref="replies")
 
 
 class Schedule(Base):

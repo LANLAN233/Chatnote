@@ -1,19 +1,21 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { SendHorizontal, PlusCircle, Image as ImageIcon, X, Zap } from "lucide-react";
+import { SendHorizontal, PlusCircle, Image as ImageIcon, X, Zap, CornerDownLeft } from "lucide-react";
 import { useNoteStore, useServerStore, useChannelStore } from "../../stores";
 import { attachmentApi } from "../../services/attachmentApi";
 import { channelApi } from "../../services";
 import { useMentionAutocomplete } from "../../hooks/useMentionAutocomplete";
 import MentionAutocompleteDropdown from "../common/MentionAutocompleteDropdown";
-import type { Channel } from "../../types";
+import type { Channel, NoteReplyPreview } from "../../types";
 
 interface NoteEditorProps {
   channelId: number;
   aiEnabled?: boolean;
   onToggleAI?: () => void;
+  replyTo?: NoteReplyPreview | null;
+  onCancelReply?: () => void;
 }
 
-export default function NoteEditor({ channelId, aiEnabled = true, onToggleAI }: NoteEditorProps) {
+export default function NoteEditor({ channelId, aiEnabled = true, onToggleAI, replyTo, onCancelReply }: NoteEditorProps) {
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -94,6 +96,7 @@ export default function NoteEditor({ channelId, aiEnabled = true, onToggleAI }: 
       content: content.trim() || " ",
       content_type: "markdown",
       auto_classify: aiEnabled,
+      reply_to_id: replyTo?.id || undefined,
     });
 
     // Upload attachments after note is created
@@ -112,6 +115,7 @@ export default function NoteEditor({ channelId, aiEnabled = true, onToggleAI }: 
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
+    if (onCancelReply) onCancelReply();
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -187,6 +191,23 @@ export default function NoteEditor({ channelId, aiEnabled = true, onToggleAI }: 
         {isDragging && (
           <div className="px-3 py-2 border-b border-[#5865f2] text-[#5865f2] text-[13px] font-medium text-center">
             Drop files here to attach
+          </div>
+        )}
+
+        {/* Reply preview bar */}
+        {replyTo && (
+          <div className="flex items-start gap-2 px-3 py-2 border-b border-[#1e1f22]">
+            <CornerDownLeft size={14} className="text-[#949ba4] mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] text-[#949ba4] mb-0.5">Replying to</p>
+              <p className="text-[13px] text-[#dbdee1] truncate">{replyTo.content}</p>
+            </div>
+            <button
+              onClick={onCancelReply}
+              className="text-[#949ba4] hover:text-white shrink-0"
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
 

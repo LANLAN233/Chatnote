@@ -64,6 +64,10 @@ export const noteApi = {
   update: (id: number, data: NoteUpdate) => api.put<ApiResponse<Note>>(`/notes/${id}`, data),
   delete: (id: number) => api.delete<ApiResponse<null>>(`/notes/${id}`),
   search: (q: string) => api.get<ApiResponse<Note[]>>("/notes/search", { params: { q } }),
+  // Phase 12
+  togglePin: (id: number) => api.put<ApiResponse<Note>>(`/notes/${id}/pin`),
+  updateTags: (id: number, tags: string[]) => api.put<ApiResponse<Note>>(`/notes/${id}/tags`, tags),
+  listPinned: (channelId: number) => api.get<ApiResponse<Note[]>>(`/channels/${channelId}/pinned`),
 };
 
 export const aiApi = {

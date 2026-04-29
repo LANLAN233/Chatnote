@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.models import Channel, Note, Server, User
@@ -18,7 +19,12 @@ async def list_notes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Note).where(Note.channel_id == channel_id, Note.user_id == current_user.id)
+    query = (
+        select(Note)
+        .options(selectinload(Note.attachments))
+        .options(selectinload(Note.reply_to))
+        .where(Note.channel_id == channel_id, Note.user_id == current_user.id)
+    )
 
     if search:
         query = query.where(Note.content.ilike(f"%{search}%"))
@@ -59,10 +65,13 @@ async def create_note(
         ai_summary=note_in.ai_summary,
         ai_confidence=note_in.ai_confidence,
         ai_tags=note_in.ai_tags,
+        reply_to_id=note_in.reply_to_id,
+        user_tags=note_in.user_tags,
     )
     db.add(note)
     await db.flush()
     await db.refresh(note)
+    await db.refresh(note, ["attachments", "reply_to"])
     
     # Broadcast via WebSocket
     await ws_manager.broadcast_note_created(current_user.id, NoteResponse.model_validate(note).model_dump())
@@ -85,11 +94,17 @@ async def search_notes(
 
     if fts_ids:
         result = await db.execute(
-            select(Note).where(Note.id.in_(fts_ids), Note.user_id == current_user.id).order_by(Note.created_at.desc())
+            select(Note)
+            .options(selectinload(Note.attachments))
+            .options(selectinload(Note.reply_to))
+            .where(Note.id.in_(fts_ids), Note.user_id == current_user.id)
+            .order_by(Note.created_at.desc())
         )
     else:
         result = await db.execute(
             select(Note)
+            .options(selectinload(Note.attachments))
+            .options(selectinload(Note.reply_to))
             .where(Note.user_id == current_user.id, Note.content.ilike(f"%{q}%"))
             .order_by(Note.created_at.desc())
         )
@@ -106,7 +121,12 @@ async def get_note(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Note).where(Note.id == note_id, Note.user_id == current_user.id))
+    result = await db.execute(
+        select(Note)
+        .options(selectinload(Note.attachments))
+        .options(selectinload(Note.reply_to))
+        .where(Note.id == note_id, Note.user_id == current_user.id)
+    )
     note = result.scalar_one_or_none()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -120,7 +140,12 @@ async def update_note(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Note).where(Note.id == note_id, Note.user_id == current_user.id))
+    result = await db.execute(
+        select(Note)
+        .options(selectinload(Note.attachments))
+        .options(selectinload(Note.reply_to))
+        .where(Note.id == note_id, Note.user_id == current_user.id)
+    )
     note = result.scalar_one_or_none()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -130,6 +155,7 @@ async def update_note(
     note.is_edited = True
     await db.flush()
     await db.refresh(note)
+    await db.refresh(note, ["attachments", "reply_to"])
     
     # Broadcast via WebSocket
     await ws_manager.broadcast_note_updated(current_user.id, NoteResponse.model_validate(note).model_dump())
@@ -153,3 +179,83 @@ async def delete_note(
     await ws_manager.broadcast_note_deleted(current_user.id, note_id)
     
     return ApiResponse(success=True, message="Note deleted")
+
+
+# Phase 12: Pin / Unpin
+@router.put("/api/notes/{note_id}/pin", response_model=ApiResponse)
+async def toggle_pin(
+    note_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Note)
+        .options(selectinload(Note.attachments))
+        .options(selectinload(Note.reply_to))
+        .where(Note.id == note_id, Note.user_id == current_user.id)
+    )
+    note = result.scalar_one_or_none()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    note.is_pinned = not note.is_pinned
+    await db.flush()
+    await db.refresh(note)
+    await db.refresh(note, ["attachments", "reply_to"])
+
+    await ws_manager.broadcast_note_updated(current_user.id, NoteResponse.model_validate(note).model_dump())
+
+    action = "pinned" if note.is_pinned else "unpinned"
+    return ApiResponse(success=True, data=NoteResponse.model_validate(note).model_dump(), message=f"Note {action}")
+
+
+# Phase 12: List pinned notes in a channel
+@router.get("/api/channels/{channel_id}/pinned", response_model=ApiResponse)
+async def list_pinned(
+    channel_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Note)
+        .options(selectinload(Note.attachments))
+        .options(selectinload(Note.reply_to))
+        .where(
+            Note.channel_id == channel_id,
+            Note.user_id == current_user.id,
+            Note.is_pinned == True,
+        )
+        .order_by(Note.created_at.desc())
+    )
+    notes = result.scalars().all()
+    return ApiResponse(
+        success=True,
+        data=[NoteResponse.model_validate(n).model_dump() for n in notes],
+    )
+
+
+# Phase 12: Update user tags
+@router.put("/api/notes/{note_id}/tags", response_model=ApiResponse)
+async def update_tags(
+    note_id: int,
+    tags: list[str],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Note)
+        .options(selectinload(Note.attachments))
+        .options(selectinload(Note.reply_to))
+        .where(Note.id == note_id, Note.user_id == current_user.id)
+    )
+    note = result.scalar_one_or_none()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    import json
+    note.user_tags = json.dumps(tags)
+    await db.flush()
+    await db.refresh(note)
+    await db.refresh(note, ["attachments", "reply_to"])
+
+    await ws_manager.broadcast_note_updated(current_user.id, NoteResponse.model_validate(note).model_dump())
+
+    return ApiResponse(success=True, data=NoteResponse.model_validate(note).model_dump(), message="Tags updated")

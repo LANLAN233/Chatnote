@@ -3,16 +3,30 @@ import { useParams } from "react-router-dom";
 import {
   Hash, Bell, Pin, Search, HelpCircle, PlusCircle,
   SendHorizontal, Image as ImageIcon, X, Pencil, Trash2, Check,
+  CornerDownLeft, Reply,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useNoteStore, useChannelStore, useAuthStore } from "../../stores";
-import type { Attachment } from "../../types";
+import { noteApi } from "../../services";
+import type { Attachment, NoteReplyPreview } from "../../types";
 import NoteEditor from "./NoteEditor";
 import MentionHighlight from "../common/MentionHighlight";
 import AttachmentCard from "./AttachmentCard";
+import MessageContextMenu from "../common/MessageContextMenu";
+import PinnedPanel from "./PinnedPanel";
 
 /** 同一段消息的最大时间间隔：3 分钟（毫秒） */
 const GROUP_TIME_WINDOW = 3 * 60 * 1000;
+
+const TAG_COLORS: Record<string, string> = {
+  "重点": "bg-[#5865f2] text-white",
+  "待复习": "bg-[#f59e0b] text-white",
+  "错题": "bg-[#f23f43] text-white",
+};
+
+function getTagColor(tag: string) {
+  return TAG_COLORS[tag] || "bg-[#2b2d31] text-[#dbdee1] border border-[#4f545c]";
+}
 
 function DateDivider({ date }: { date: string }) {
   const d = new Date(date + 'Z');
@@ -49,6 +63,8 @@ export default function NoteList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showPanel, setShowPanel] = useState<"none" | "notifications" | "pins">("none");
   const [aiEnabled, setAiEnabled] = useState(true);
+  const [pinnedNotes, setPinnedNotes] = useState<typeof notes>([]);
+  const [replyTo, setReplyTo] = useState<NoteReplyPreview | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
   const prevNewestNoteId = useRef<number | null>(null);
@@ -59,6 +75,23 @@ export default function NoteList() {
       fetchNotes(Number(channelId));
     }
   }, [channelId, fetchNotes, setCurrentChannel]);
+
+  // Load pinned notes when panel opens or channel changes
+  const loadPinned = useCallback(async () => {
+    if (!channelId) return;
+    try {
+      const { data } = await noteApi.listPinned(Number(channelId));
+      setPinnedNotes((data.data as typeof notes) || []);
+    } catch {
+      setPinnedNotes([]);
+    }
+  }, [channelId]);
+
+  useEffect(() => {
+    if (showPanel === "pins") {
+      loadPinned();
+    }
+  }, [showPanel, loadPinned]);
 
   // Auto-scroll: scroll to bottom on initial load or when a new note arrives
   useEffect(() => {
@@ -92,6 +125,16 @@ export default function NoteList() {
 
   // Reverse notes so oldest is at top, newest at bottom
   const sortedNotes = [...filteredNotes].reverse();
+
+  const handleUnpin = async (noteId: number) => {
+    try {
+      await noteApi.togglePin(noteId);
+      await loadPinned();
+      if (channelId) await fetchNotes(Number(channelId));
+    } catch (err) {
+      console.error("Failed to unpin:", err);
+    }
+  };
 
   if (!channelId || !channel) {
     return (
@@ -177,32 +220,60 @@ export default function NoteList() {
                   isSameSender={!!isSameSender}
                   userName={user?.display_name || user?.username || "User"}
                   searchQuery={searchTerm}
+                  onReply={(preview) => setReplyTo(preview)}
+                  onPinToggle={async () => {
+                    await noteApi.togglePin(note.id);
+                    if (channelId) await fetchNotes(Number(channelId));
+                    if (showPanel === "pins") await loadPinned();
+                  }}
                 />
               </div>
             );
           })}
         </main>
 
-        <NoteEditor channelId={Number(channelId)} aiEnabled={aiEnabled} onToggleAI={() => setAiEnabled((v) => !v)} />
+        <NoteEditor
+          channelId={Number(channelId)}
+          aiEnabled={aiEnabled}
+          onToggleAI={() => setAiEnabled((v) => !v)}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+        />
       </div>
 
       {showPanel !== "none" && (
-        <div className="w-80 bg-[#2b2d31] border-l border-[#1e1f22] flex flex-col animate-slide-in-right shrink-0">
-          <header className="h-12 flex items-center justify-between px-4 border-b border-[#1e1f22]">
-            <h3 className="font-bold text-white text-sm uppercase tracking-wide">
-              {showPanel === "notifications" ? "Inbox" : "Pinned"}
-            </h3>
-            <button onClick={() => setShowPanel("none")} className="text-gray-400 hover:text-white">
-              <X size={18} />
-            </button>
-          </header>
-          <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center text-center opacity-60">
-            <div className="w-16 h-16 bg-[#313338] rounded-full mb-4 flex items-center justify-center">
-              {showPanel === "notifications" ? <Bell size={32} /> : <Pin size={32} />}
+        <>
+          {showPanel === "pins" ? (
+            <PinnedPanel
+              notes={pinnedNotes}
+              onUnpin={handleUnpin}
+              onClose={() => setShowPanel("none")}
+              onJump={(noteId) => {
+                const el = document.getElementById(`note-${noteId}`);
+                if (el && scrollRef.current) {
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+              }}
+            />
+          ) : (
+            <div className="w-80 bg-[#2b2d31] border-l border-[#1e1f22] flex flex-col animate-slide-in-right shrink-0">
+              <header className="h-12 flex items-center justify-between px-4 border-b border-[#1e1f22]">
+                <h3 className="font-bold text-white text-sm uppercase tracking-wide flex items-center gap-2">
+                  <Bell size={16} /> Inbox
+                </h3>
+                <button onClick={() => setShowPanel("none")} className="text-gray-400 hover:text-white">
+                  <X size={18} />
+                </button>
+              </header>
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center text-center opacity-60">
+                <div className="w-16 h-16 bg-[#313338] rounded-full mb-4 flex items-center justify-center">
+                  <Bell size={32} />
+                </div>
+                <p className="text-sm">You have no unread messages at the moment.</p>
+              </div>
             </div>
-            <p className="text-sm">You have no {showPanel === "notifications" ? "unread messages" : "pinned messages"} at the moment.</p>
-          </div>
-        </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -213,15 +284,29 @@ function NoteRow({
   isSameSender,
   userName,
   searchQuery,
+  onReply,
+  onPinToggle,
 }: {
-  note: { id: number; content: string; content_type: string; created_at: string; is_edited: boolean; ai_category?: string | null; attachments?: Attachment[] };
+  note: { id: number; content: string; content_type: string; created_at: string; is_edited: boolean; is_pinned?: boolean; reply_to_id?: number | null; reply_preview?: { content: string } | null; user_tags?: string | null; ai_category?: string | null; attachments?: Attachment[] };
   isSameSender: boolean;
   userName: string;
   searchQuery: string;
+  onReply: (preview: NoteReplyPreview) => void;
+  onPinToggle: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(note.content);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [userTags, setUserTags] = useState<string[]>(() => {
+    try {
+      return note.user_tags ? JSON.parse(note.user_tags) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [tagInput, setTagInput] = useState("");
   const { updateNote, deleteNote } = useNoteStore();
   const deleteRef = useRef<HTMLDivElement>(null);
 
@@ -233,6 +318,47 @@ function NoteRow({
   const handleDelete = async () => {
     await deleteNote(note.id);
     setShowDeleteConfirm(false);
+  };
+
+  const handleAddTag = async () => {
+    if (!tagInput.trim()) return;
+    const newTags = [...userTags, tagInput.trim()];
+    setUserTags(newTags);
+    setTagInput("");
+    setShowTagInput(false);
+    await noteApi.updateTags(note.id, newTags);
+  };
+
+  const handleRemoveTag = async (tag: string) => {
+    const newTags = userTags.filter((t) => t !== tag);
+    setUserTags(newTags);
+    await noteApi.updateTags(note.id, newTags);
+  };
+
+  const handleContextMenuAction = (action: import("../common/MessageContextMenu").MenuAction) => {
+    if (action === "edit") {
+      setEditContent(note.content);
+      setIsEditing(true);
+    } else if (action === "reply") {
+      onReply({ id: note.id, content: note.content.slice(0, 80), user_id: 0, created_at: note.created_at });
+    } else if (action === "copy-text") {
+      navigator.clipboard.writeText(note.content);
+    } else if (action === "pin") {
+      onPinToggle();
+    } else if (action === "mark-unread") {
+      // Visual only, refresh clears
+    } else if (action === "copy-link") {
+      navigator.clipboard.writeText(`${window.location.origin}/channels/${note.id}`);
+    } else if (action === "tts") {
+      // TTS placeholder
+      const toast = document.createElement("div");
+      toast.className = "fixed bottom-4 right-4 bg-[#2b2d31] text-white px-4 py-2 rounded-lg shadow-lg text-sm z-50";
+      toast.textContent = "TTS 功能即将上线";
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    } else if (action === "delete") {
+      setShowDeleteConfirm(true);
+    }
   };
 
   const timeStr = new Date(note.created_at + 'Z').toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -249,7 +375,14 @@ function NoteRow({
   };
 
   return (
-    <div className={`relative flex gap-4 group hover:bg-[#2e3035] -mx-4 px-4 py-[2px] ${!isSameSender ? "mt-4" : ""}`}>
+    <div
+      id={`note-${note.id}`}
+      className={`relative flex gap-4 group hover:bg-[#2e3035] -mx-4 px-4 py-[2px] ${!isSameSender ? "mt-4" : ""}`}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setContextMenu({ x: e.clientX, y: e.clientY });
+      }}
+    >
       {!isSameSender ? (
         <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-sm mt-1 bg-gradient-to-br from-[#5865f2] to-[#4752c4]">
           {userName[0].toUpperCase()}
@@ -272,6 +405,14 @@ function NoteRow({
               {timeStr}
             </span>
             {note.is_edited && <span className="text-[10px] text-[#949ba4]">(edited)</span>}
+          </div>
+        )}
+
+        {/* Reply preview */}
+        {note.reply_preview && (
+          <div className="mb-1 flex items-start gap-2 text-[12px] text-[#949ba4] bg-[#2b2d31] rounded px-2 py-1 border-l-2 border-[#949ba4]">
+            <CornerDownLeft size={12} className="mt-0.5 shrink-0" />
+            <span className="truncate">{note.reply_preview.content}</span>
           </div>
         )}
 
@@ -321,6 +462,59 @@ function NoteRow({
           </div>
         )}
 
+        {/* User tags */}
+        {!isEditing && userTags.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {userTags.map((tag) => (
+              <span
+                key={tag}
+                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getTagColor(tag)}`}
+              >
+                {tag}
+                <button
+                  onClick={() => handleRemoveTag(tag)}
+                  className="ml-1 hover:opacity-70"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+            <button
+              onClick={() => setShowTagInput(true)}
+              className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] text-[#949ba4] border border-dashed border-[#4f545c] hover:border-[#949ba4] hover:text-[#dbdee1]"
+            >
+              + Tag
+            </button>
+          </div>
+        )}
+        {showTagInput && (
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              autoFocus
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAddTag();
+                if (e.key === "Escape") { setShowTagInput(false); setTagInput(""); }
+              }}
+              placeholder="New tag..."
+              className="bg-[#1e1f22] text-white text-[12px] px-2 py-1 rounded outline-none border border-[#4f545c] focus:border-[#5865f2]"
+            />
+            <button onClick={handleAddTag} className="text-[#5865f2] text-[12px] hover:underline">Add</button>
+            <button onClick={() => { setShowTagInput(false); setTagInput(""); }} className="text-[#949ba4] text-[12px] hover:underline">Cancel</button>
+          </div>
+        )}
+        {!isEditing && userTags.length === 0 && (
+          <div className="mt-1">
+            <button
+              onClick={() => setShowTagInput(true)}
+              className="text-[11px] text-[#949ba4] hover:text-[#dbdee1] opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              + Add tag
+            </button>
+          </div>
+        )}
+
         {note.attachments && note.attachments.length > 0 && !isEditing && (
           <AttachmentCard attachments={note.attachments} />
         )}
@@ -335,6 +529,20 @@ function NoteRow({
             title="Edit"
           >
             <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            className="p-1.5 rounded hover:bg-[#35373c] text-[#949ba4] hover:text-white transition-colors"
+            onClick={() => onReply({ id: note.id, content: note.content.slice(0, 80), user_id: 0, created_at: note.created_at })}
+            title="Reply"
+          >
+            <Reply className="w-3.5 h-3.5" />
+          </button>
+          <button
+            className={`p-1.5 rounded hover:bg-[#35373c] text-[#949ba4] hover:text-white transition-colors ${note.is_pinned ? "text-[#5865f2]" : ""}`}
+            onClick={onPinToggle}
+            title={note.is_pinned ? "Unpin" : "Pin"}
+          >
+            <Pin className="w-3.5 h-3.5" />
           </button>
           <button
             className="p-1.5 rounded hover:bg-[#35373c] text-[#949ba4] hover:text-[#f23f43] transition-colors"
@@ -355,6 +563,16 @@ function NoteRow({
           <button className="px-3 py-1.5 bg-[#f23f43] text-white text-[13px] rounded-lg font-medium hover:opacity-90 transition-opacity" onClick={handleDelete}>Delete</button>
           <button className="px-3 py-1.5 text-[#949ba4] hover:text-white text-[13px] transition-colors" onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
         </div>
+      )}
+
+      {contextMenu && (
+        <MessageContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          isPinned={!!note.is_pinned}
+          onAction={handleContextMenuAction}
+          onClose={() => setContextMenu(null)}
+        />
       )}
     </div>
   );
