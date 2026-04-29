@@ -17,6 +17,7 @@ import type {
   ScheduleImportResult,
   Server,
   ServerCreate,
+  ServerFile,
   ServerUpdate,
   SmartCreateResult,
   StatsData,
@@ -68,11 +69,13 @@ export const noteApi = {
 export const aiApi = {
   classify: (content: string) =>
     api.post<ApiResponse<ClassificationResult>>("/ai/classify", { content }),
-  smartCreate: (content: string, autoClassify = true, channelId?: number) =>
+  smartCreate: (content: string, autoClassify = true, channelId?: number, serverName?: string, channelName?: string) =>
     api.post<ApiResponse<SmartCreateResult>>("/notes/smart-create", {
       content,
       auto_classify: autoClassify,
       channel_id: channelId,
+      server_name: serverName,
+      channel_name: channelName,
     }),
   importSchedule: (text?: string, imageUrl?: string) => {
     return api.post<ApiResponse<ScheduleImportResult>>("/ai/import-schedule", {
@@ -131,6 +134,20 @@ export const inboxApi = {
     api.post<ApiResponse<InboxItem>>(`/inbox/${id}/ai-suggest`),
   archive: (id: number, data: InboxItemArchiveRequest) =>
     api.post<ApiResponse<{ note: Note; server_id: number; channel_id: number; inbox_item_id: number }>>(`/inbox/${id}/archive`, data),
+};
+
+export const serverFileApi = {
+  list: (serverId: number, category?: string) =>
+    api.get<ApiResponse<{ files: ServerFile[] }>>(`/server/${serverId}/files`, { params: category ? { category } : undefined }),
+  upload: (serverId: number, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<ApiResponse<ServerFile>>(`/server/${serverId}/files`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  delete: (serverId: number, fileId: number) =>
+    api.delete<ApiResponse<null>>(`/server/${serverId}/files/${fileId}`),
 };
 
 export { attachmentApi, type Attachment } from "./attachmentApi";

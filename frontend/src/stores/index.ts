@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { authApi, serverApi, channelApi, noteApi, aiApi, settingsApi, apiKeyApi } from "../services";
 import wsService from "../services/websocket";
-import type { Channel, Note, NoteList, Server, User, UserApiKey, UserSettingsUpdate } from "../types";
+import type { Channel, Note, NoteList, Server, SmartCreateResult, User, UserApiKey, UserSettingsUpdate } from "../types";
 
 interface AuthState {
   user: User | null;
@@ -187,7 +187,7 @@ interface NoteState {
   isLoading: boolean;
   realtimeNotes: Note[];
   fetchNotes: (channelId: number, search?: string) => Promise<void>;
-  createNote: (data: { channel_id: number; content: string; content_type?: string; auto_classify?: boolean }) => Promise<void>;
+  createNote: (data: { channel_id: number; content: string; content_type?: string; auto_classify?: boolean }) => Promise<Note | null>;
   smartCreateNote: (content: string, autoClassify?: boolean) => Promise<void>;
   updateNote: (id: number, data: { content?: string }) => Promise<void>;
   deleteNote: (id: number) => Promise<void>;
@@ -214,19 +214,28 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
   createNote: async (data) => {
     const hasExplicitTarget = /[@#]/.test(data.content);
-    if (data.auto_classify && hasExplicitTarget) {
-      // Use smart-create only when user explicitly wrote @Server #Channel
-      const { data: response } = await aiApi.smartCreate(data.content, true, data.channel_id);
+    if (hasExplicitTarget) {
+      // Always respect explicit @# targeting regardless of AI toggle
+      const serverMatch = data.content.match(/^@([^\s#]+)/);
+      const channelMatch = data.content.match(/^@[^\s#]+\s+#([^\s]+)/);
+      const serverName = serverMatch ? serverMatch[1] : undefined;
+      const channelName = channelMatch ? channelMatch[1] : undefined;
+      const { data: response } = await aiApi.smartCreate(
+        data.content, data.auto_classify ?? true, data.channel_id, serverName, channelName
+      );
+      const result = response.data as SmartCreateResult | null;
       if (data.channel_id) await get().fetchNotes(data.channel_id);
-      return;
+      return result?.note || null;
     }
     // Normal creation: pin to current channel when inside a channel
-    await noteApi.create({
+    const { data: response } = await noteApi.create({
       channel_id: data.channel_id,
       content: data.content,
       content_type: data.content_type || "markdown",
     });
+    const note = response.data as Note | null;
     await get().fetchNotes(data.channel_id);
+    return note;
   },
   smartCreateNote: async (content, autoClassify = true) => {
     await aiApi.smartCreate(content, autoClassify);
