@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   Terminal,
   Trash2,
@@ -15,9 +16,18 @@ import {
   ChevronRight,
   Save,
   FolderOpen,
+  Copy,
+  FileInput,
+  ExternalLink,
 } from "lucide-react";
-import type { ConsoleMessage, ConsoleSession, Server, Channel } from "../../types";
+import type { ConsoleMessage, ConsoleMessageMetadata, ConsoleSession, Server, Channel } from "../../types";
 import { consoleSessionApi, serverApi, channelApi } from "../../services";
+import ConsoleImportModal from "../console/ConsoleImportModal";
+import QuerySourcesModal from "../console/QuerySourcesModal";
+import UrlPreviewCard from "./UrlPreviewCard";
+import CodeExecutionBlock from "./CodeExecutionBlock";
+import ToolCallIndicator from "./ToolCallIndicator";
+import ToolResultAccordion from "./ToolResultAccordion";
 
 type ConsoleScope =
   | { type: "global" }
@@ -45,6 +55,7 @@ interface ConsoleCoreProps {
   headerTitle?: string;
   footerLabel?: string;
   initMessages?: string[];
+  onNavigateToSource?: (serverName: string, channelName: string) => void;
 }
 
 function formatTime(dateStr: string) {
@@ -64,6 +75,7 @@ export default function ConsoleCore({
   headerTitle,
   footerLabel = "Smart Capture",
   initMessages = [],
+  onNavigateToSource,
 }: ConsoleCoreProps) {
   const [sessions, setSessions] = useState<ConsoleSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
@@ -91,8 +103,20 @@ export default function ConsoleCore({
   const [selectedArchiveChannel, setSelectedArchiveChannel] = useState<number | null>(null);
   const [archiveLoading, setArchiveLoading] = useState(false);
 
+  // Text selection toolbar state
+  const [selectedText, setSelectedText] = useState("");
+  const [showSelectionToolbar, setShowSelectionToolbar] = useState(false);
+  const [toolbarPosition, setToolbarPosition] = useState({ x: 0, y: 0 });
+  const [hoveredMessageId, setHoveredMessageId] = useState<number | null>(null);
+  const [importContent, setImportContent] = useState("");
+
+  // Query sources modal state
+  const [querySourcesMessage, setQuerySourcesMessage] = useState<ConsoleMessage | null>(null);
+
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const selectionToolbarRef = useRef<HTMLDivElement>(null);
 
   // Load sessions on mount
   useEffect(() => {
@@ -107,6 +131,66 @@ export default function ConsoleCore({
   useEffect(() => {
     inputRef.current?.focus();
   }, [currentSessionId]);
+
+  const handleCopyText = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+  };
+
+  const handleImportToChannel = (text: string) => {
+    setImportContent(text);
+    setShowSelectionToolbar(false);
+  };
+
+  // Text selection handler
+  useEffect(() => {
+    const handleMouseUp = () => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() || "";
+
+      if (text) {
+        // Get selection range to calculate position
+        const range = selection?.getRangeAt(0);
+        if (range) {
+          const rect = range.getBoundingClientRect ? range.getBoundingClientRect() : null;
+          setToolbarPosition({
+            x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+            y: rect ? rect.top - 8 : 100,
+          });
+        }
+        setSelectedText(text);
+        setShowSelectionToolbar(true);
+      } else {
+        setShowSelectionToolbar(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && showSelectionToolbar) {
+        setShowSelectionToolbar(false);
+      }
+    };
+
+    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showSelectionToolbar]);
+
+  // Close toolbar on outside click
+  useEffect(() => {
+    if (!showSelectionToolbar) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (selectionToolbarRef.current && !selectionToolbarRef.current.contains(e.target as Node)) {
+        setShowSelectionToolbar(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showSelectionToolbar]);
 
   const loadSessions = async () => {
     try {
@@ -398,8 +482,25 @@ export default function ConsoleCore({
       // Build assistant message from result
       let assistantContent = "";
       let assistantType = "text";
+      let assistantMetadata: ConsoleMessageMetadata | undefined;
 
-      if (result.plugin_responses && result.plugin_responses.length > 0) {
+      // Check for query_answer (knowledge-base Q&A result with sources)
+      const resultData = result.data as Record<string, unknown> | undefined;
+
+      // Extract tool_calls and tool_results from result data (Phase 15 agno tools)
+      const toolCalls = resultData?.tool_calls;
+      const toolResults = resultData?.tool_results;
+
+      if (resultData?.sources && Array.isArray(resultData.sources) && resultData.sources.length > 0) {
+        assistantContent = (resultData.answer as string) || result.content || "";
+        assistantType = "query_answer";
+        assistantMetadata = {
+          sources: resultData.sources as ConsoleMessageMetadata["sources"],
+          server_name: resultData.server_name as string | undefined,
+          channel_name: resultData.channel_name as string | undefined,
+          total_notes_fetched: resultData.total_notes_fetched as number | undefined,
+        };
+      } else if (result.plugin_responses && result.plugin_responses.length > 0) {
         assistantContent = result.plugin_responses
           .map((pr) => `[${pr.plugin_name}] ${pr.message}`)
           .join("\n");
@@ -416,10 +517,36 @@ export default function ConsoleCore({
       } else if (result.note) {
         assistantContent = "Note saved successfully.";
         assistantType = "note";
+      } else if (result.type === "web_result") {
+        assistantContent = result.content || "";
+        assistantType = "web_result";
+        assistantMetadata = {
+          title: (resultData as Record<string, unknown>)?.title as string | undefined,
+          url: (resultData as Record<string, unknown>)?.url as string | undefined,
+          web_summary: (resultData as Record<string, unknown>)?.summary as string | undefined,
+          favicon: (resultData as Record<string, unknown>)?.favicon as string | undefined,
+        };
+      } else if (result.type === "code_execution") {
+        assistantContent = result.content || "";
+        assistantType = "code_execution";
+        assistantMetadata = {
+          code: (resultData as Record<string, unknown>)?.code as string | undefined,
+          output: (resultData as Record<string, unknown>)?.output as string | undefined,
+          language: (resultData as Record<string, unknown>)?.language as string | undefined,
+        };
       } else if (result.content) {
         assistantContent = result.content;
       } else {
         assistantContent = JSON.stringify(result, null, 2);
+      }
+
+      // Merge tool_calls and tool_results into metadata if present
+      if (toolCalls || toolResults) {
+        assistantMetadata = {
+          ...assistantMetadata,
+          tool_calls: (toolCalls as ConsoleMessageMetadata["tool_calls"]) || undefined,
+          tool_results: (toolResults as ConsoleMessageMetadata["tool_results"]) || undefined,
+        };
       }
 
       const assistantMsg: ConsoleMessage = {
@@ -429,6 +556,7 @@ export default function ConsoleCore({
         content: assistantContent,
         type: assistantType,
         created_at: new Date().toISOString(),
+        metadata: assistantMetadata,
       };
 
       if (result.type === "clear") {
@@ -639,7 +767,10 @@ export default function ConsoleCore({
 
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col min-w-0">
-          <main className="flex-1 overflow-y-auto p-4 space-y-3 text-[13px] selection:bg-[#5865F2]/30 scrollbar-hide">
+          <main
+            ref={messagesContainerRef}
+            className="flex-1 overflow-y-auto p-4 space-y-3 text-[13px] select-text selection:bg-[#5865F2]/30 scrollbar-hide"
+          >
             {initMessages.map((msg, i) => (
               <div
                 key={`init-${i}`}
@@ -649,44 +780,159 @@ export default function ConsoleCore({
               </div>
             ))}
 
-            {messages.map((msg) => (
+            {messages.map((msg) => {
+              const hasToolCalls = msg.metadata?.tool_calls && msg.metadata.tool_calls.length > 0;
+              const hasToolResults = msg.metadata?.tool_results && msg.metadata.tool_results.length > 0;
+              return (
               <div
                 key={msg.id}
-                className={`flex ${
+                data-testid={`message-row-${msg.id}`}
+                className={`group relative flex ${
                   msg.role === "user"
                     ? "justify-end"
                     : msg.role === "system"
                     ? "justify-center"
                     : "justify-start"
                 }`}
+                onMouseEnter={() => setHoveredMessageId(msg.id)}
+                onMouseLeave={() => setHoveredMessageId((current) => (current === msg.id ? null : current))}
               >
-                <div
-                  className={`max-w-[80%] rounded-xl px-4 py-2.5 whitespace-pre-wrap break-words ${
-                    msg.role === "user"
-                      ? "bg-[#23a559]/20 text-green-100 border border-[#23a559]/30"
-                      : msg.role === "system"
-                      ? "bg-[#5865f2]/10 text-blue-300 text-xs border border-[#5865f2]/20"
-                      : msg.type === "error"
-                      ? "bg-red-500/10 text-red-300 border border-red-500/20"
-                      : "bg-[#2b2d31] text-gray-200 border border-[#3f4147]"
-                  }`}
-                >
-                  <div className="text-[11px] text-gray-500 mb-1 flex items-center gap-2">
-                    {msg.role === "user" && (
-                      <span className="text-[#23a559] font-bold">You</span>
+                <div className="max-w-[80%] flex flex-col gap-1.5">
+                  {/* Tool call indicators — shown above the bubble */}
+                  {hasToolCalls && msg.metadata?.tool_calls?.map((tc, i) => (
+                    <ToolCallIndicator
+                      key={`tc-${msg.id}-${i}`}
+                      toolName={tc.tool_name}
+                      isActive={false}
+                    />
+                  ))}
+
+                  <div
+                    className={`rounded-xl px-4 py-2.5 whitespace-pre-wrap break-words ${
+                      msg.type === "query_answer"
+                        ? "border-l-4 border-purple-500 pl-4 bg-[#2b2040]/30 text-gray-200 border border-purple-500/20"
+                        : msg.type === "web_result"
+                        ? "border-l-4 border-blue-500 pl-4 bg-[#0d1117]/30 text-gray-200 border border-blue-500/20"
+                        : msg.type === "code_execution"
+                        ? "border-l-4 border-[#d2a8ff] pl-4 bg-[#1e1a2e]/30 text-gray-200 border border-[#d2a8ff]/20"
+                        : msg.role === "user"
+                        ? "bg-[#23a559]/20 text-green-100 border border-[#23a559]/30"
+                        : msg.role === "system"
+                        ? "bg-[#5865f2]/10 text-blue-300 text-xs border border-[#5865f2]/20"
+                        : msg.type === "error"
+                        ? "bg-red-500/10 text-red-300 border border-red-500/20"
+                        : "bg-[#2b2d31] text-gray-200 border border-[#3f4147]"
+                    }`}
+                  >
+                    <div className="text-[11px] text-gray-500 mb-1 flex items-center gap-2">
+                      {msg.role === "user" && (
+                        <span className="text-[#23a559] font-bold">You</span>
+                      )}
+                      {msg.role === "assistant" && msg.type !== "query_answer" && msg.type !== "web_result" && msg.type !== "code_execution" && (
+                        <span className="text-[#5865f2] font-bold">Assistant</span>
+                      )}
+                      {msg.type === "query_answer" && (
+                        <span className="text-purple-400 font-bold">🔍 知识库查询</span>
+                      )}
+                      {msg.type === "web_result" && (
+                        <span className="text-[#58a6ff] font-bold">🌐 网页预览</span>
+                      )}
+                      {msg.type === "code_execution" && (
+                        <span className="text-[#d2a8ff] font-bold">💻 代码执行</span>
+                      )}
+                      {msg.role === "system" && (
+                        <span className="text-blue-400 font-bold">System</span>
+                      )}
+                      <span>{formatTime(msg.created_at)}</span>
+                    </div>
+                    {/* Web preview card */}
+                    {msg.type === "web_result" && msg.metadata?.url ? (
+                      <UrlPreviewCard
+                        title={msg.metadata.title || msg.metadata.url}
+                        url={msg.metadata.url}
+                        summary={msg.metadata.web_summary || msg.content}
+                        favicon={msg.metadata.favicon}
+                      />
+                    ) : msg.type === "code_execution" && msg.metadata?.code ? (
+                      <CodeExecutionBlock
+                        code={msg.metadata.code}
+                        output={msg.metadata.output || msg.content}
+                        language={msg.metadata.language}
+                      />
+                    ) : (
+                      <div className="leading-relaxed select-text">{msg.content}</div>
                     )}
-                    {msg.role === "assistant" && (
-                      <span className="text-[#5865f2] font-bold">Assistant</span>
+
+                    {/* Query sources */}
+                    {msg.type === "query_answer" && msg.metadata?.sources && msg.metadata.sources.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-purple-500/20">
+                        <p className="text-xs text-purple-400 mb-2">
+                          基于 {msg.metadata.sources.length} 条笔记
+                          {msg.metadata.total_notes_fetched && (
+                            <span className="text-[#949ba4]"> · 共检索 {msg.metadata.total_notes_fetched} 条</span>
+                          )}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {msg.metadata.sources.map((src, i) => (
+                            <button
+                              key={i}
+                              onClick={() => setQuerySourcesMessage(msg)}
+                              className="text-xs text-purple-400 hover:text-purple-300 cursor-pointer underline truncate max-w-[240px] text-left transition-colors"
+                              title={`@${src.server} #${src.channel}: ${src.excerpt}`}
+                            >
+                              @{src.server}/#{src.channel}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => setQuerySourcesMessage(msg)}
+                          className="mt-2 flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                        >
+                          <ExternalLink size={12} />
+                          <span>查看全部来源</span>
+                        </button>
+                      </div>
                     )}
-                    {msg.role === "system" && (
-                      <span className="text-blue-400 font-bold">System</span>
-                    )}
-                    <span>{formatTime(msg.created_at)}</span>
                   </div>
-                  <div className="leading-relaxed">{msg.content}</div>
+
+                  {/* Tool result accordions — shown below the bubble */}
+                  {hasToolResults && msg.metadata?.tool_results?.map((tr, i) => {
+                    // Look up input from tool_calls if not present in tool_result
+                    const input = tr.input ?? msg.metadata?.tool_calls?.find(tc => tc.tool_name === tr.tool_name)?.input ?? null;
+                    return (
+                    <ToolResultAccordion
+                      key={`tr-${msg.id}-${i}`}
+                      toolName={tr.tool_name}
+                      input={input}
+                      output={tr.output}
+                    />
+                    );
+                  })}
+                </div>
+
+                <div
+                  data-testid={`message-toolbar-${msg.id}`}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1 rounded-lg bg-[#111214] border border-[#3f4147] shadow-2xl py-1 px-1.5 transition-opacity duration-150 ${hoveredMessageId === msg.id ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => handleCopyText(msg.content)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] text-[#dbdee1] hover:bg-[#5865f2] hover:text-white rounded transition-colors"
+                  >
+                    <Copy className="w-4 h-4" />
+                    <span>复制</span>
+                  </button>
+                  <button
+                    onClick={() => handleImportToChannel(msg.content)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] text-[#dbdee1] hover:bg-[#5865f2] hover:text-white rounded transition-colors"
+                  >
+                    <FileInput className="w-4 h-4" />
+                    <span>导入到...</span>
+                  </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {isLoading && (
               <div className="flex justify-start">
@@ -888,6 +1134,61 @@ export default function ConsoleCore({
           </footer>
         </div>
       </div>
+
+      {/* Floating Selection Toolbar */}
+      {showSelectionToolbar && createPortal(
+        <div
+          ref={selectionToolbarRef}
+          data-testid="selection-toolbar"
+          className="fixed z-[9999] flex items-center gap-1 bg-[#111214] border border-[#3f4147] rounded-lg shadow-2xl py-1.5 px-2"
+          style={{
+            left: toolbarPosition.x,
+            top: toolbarPosition.y,
+            transform: "translate(-50%, -100%)",
+          }}
+        >
+          <button
+            onClick={() => {
+              handleCopyText(selectedText);
+              setShowSelectionToolbar(false);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-[#dbdee1] hover:bg-[#5865f2] hover:text-white rounded transition-colors"
+          >
+            <Copy className="w-4 h-4" />
+            <span>复制</span>
+          </button>
+          <button
+            onClick={() => {
+              handleImportToChannel(selectedText);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-[#dbdee1] hover:bg-[#5865f2] hover:text-white rounded transition-colors"
+          >
+            <FileInput className="w-4 h-4" />
+            <span>导入到...</span>
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {importContent && (
+        <ConsoleImportModal
+          content={importContent}
+          servers={archiveServers}
+          channels={archiveChannels}
+          onClose={() => setImportContent("")}
+        />
+      )}
+
+      {/* Query Sources Modal */}
+      {querySourcesMessage?.metadata?.sources && (
+        <QuerySourcesModal
+          sources={querySourcesMessage.metadata.sources}
+          serverName={querySourcesMessage.metadata.server_name}
+          channelName={querySourcesMessage.metadata.channel_name}
+          onClose={() => setQuerySourcesMessage(null)}
+          onNavigate={onNavigateToSource}
+        />
+      )}
 
       {/* Archive Dialog */}
       {showArchiveDialog && (

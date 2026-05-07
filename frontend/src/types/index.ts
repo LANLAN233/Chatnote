@@ -74,6 +74,7 @@ export interface Note {
   is_pinned: boolean;
   reply_to_id: number | null;
   user_tags: string | null;
+  thread_id?: number | null;
   reply_preview?: NoteReplyPreview | null;
   is_edited: boolean;
   created_at: string;
@@ -163,6 +164,19 @@ export interface ConsoleResult {
   data?: unknown;
 }
 
+export interface ConsoleImportRequest {
+  content: string;
+  server_id?: number;
+  channel_id?: number;
+  target_text?: string;
+}
+
+export interface ConsoleImportResult {
+  note: Note;
+  server_id: number;
+  channel_id: number;
+}
+
 export interface SmartCreateResult {
   note: Note;
   server_id: number;
@@ -213,6 +227,10 @@ export interface InboxItem {
   ai_tags: string | null;
   ai_summary: string | null;
   ai_confidence: number | null;
+  ai_reviewed?: boolean;
+  ensemble_consistency?: string | null;
+  fast_confidence?: number;
+  strong_confidence?: number;
   status: string;
   created_at: string;
   updated_at: string;
@@ -237,6 +255,44 @@ export interface ConsoleLog {
   timestamp: Date;
 }
 
+export interface QuerySource {
+  note_id?: number;
+  excerpt: string;
+  channel: string;
+  server: string;
+}
+
+export interface ToolCall {
+  tool_name: string;
+  input: Record<string, unknown> | null;
+  error?: string | null;
+}
+
+export interface ToolResult {
+  tool_name: string;
+  input?: Record<string, unknown> | null;
+  output: string | null;
+  error?: string | null;
+}
+
+export interface ConsoleMessageMetadata {
+  sources?: QuerySource[];
+  server_name?: string;
+  channel_name?: string;
+  total_notes_fetched?: number;
+  tool_calls?: ToolCall[];
+  tool_results?: ToolResult[];
+  // Web preview
+  url?: string;
+  title?: string;
+  web_summary?: string;
+  favicon?: string;
+  // Code execution
+  code?: string;
+  output?: string;
+  language?: string;
+}
+
 export interface ConsoleMessage {
   id: number;
   session_id: number;
@@ -244,6 +300,7 @@ export interface ConsoleMessage {
   content: string;
   type: string;
   created_at: string;
+  metadata?: ConsoleMessageMetadata;
 }
 
 export interface ConsoleSession {
@@ -370,4 +427,30 @@ export interface ServerFile {
   file_category: string;
   created_at: string;
   url: string;
+}
+
+export interface DailySummaryStage {
+  name: string;
+  status: string;
+  duration_ms: number;
+  error?: string;
+}
+
+export interface DailySummaryResponse {
+  summary: string;
+  keywords: Array<{ keyword: string; note_ids: number[] }>;
+  total_notes: number;
+  highlight_note_id: number | null;
+  stages?: DailySummaryStage[];
+}
+
+export interface ThreadResponse {
+  id: number;
+  channel_id: number;
+  parent_note_id: number;
+  title: string;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+  messages: Note[];
 }
