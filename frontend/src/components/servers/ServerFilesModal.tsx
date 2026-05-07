@@ -19,6 +19,7 @@ interface ServerFilesModalProps {
   serverId: number;
   serverName: string;
   onClose: () => void;
+  entryType?: "library" | "my-assets";
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -51,7 +52,7 @@ function getFileIcon(category: string) {
   }
 }
 
-export default function ServerFilesModal({ serverId, serverName, onClose }: ServerFilesModalProps) {
+export default function ServerFilesModal({ serverId, serverName, onClose, entryType }: ServerFilesModalProps) {
   const [files, setFiles] = useState<ServerFile[]>([]);
   const [category, setCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -144,7 +145,11 @@ export default function ServerFilesModal({ serverId, serverName, onClose }: Serv
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e1f22]">
           <div>
-            <h2 className="text-lg font-bold text-white">Resources</h2>
+            <h2 className="text-lg font-bold text-white">
+              {entryType === "library" ? "Library" : entryType === "my-assets" ? "My Assets" : "Resources"}
+              {" — "}
+              {serverName}
+            </h2>
             <p className="text-[12px] text-[#949ba4]">{serverName}</p>
           </div>
           <button

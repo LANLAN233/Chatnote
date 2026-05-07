@@ -17,7 +17,7 @@ export default function ChannelList() {
   } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(true);
-  const [showFilesModal, setShowFilesModal] = useState(false);
+  const [showFilesModal, setShowFilesModal] = useState<false | "library" | "my-assets">(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -114,14 +114,14 @@ export default function ChannelList() {
           </div>
           <div className="space-y-[2px]">
             <button
-              onClick={() => setShowFilesModal(true)}
+              onClick={() => setShowFilesModal("library")}
               className="w-full text-left px-2 py-[6px] rounded flex items-center gap-2 transition-colors text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
             >
               <Book size={18} />
               <span className="text-[15px] font-medium leading-tight">library</span>
             </button>
             <button
-              onClick={() => setShowFilesModal(true)}
+              onClick={() => setShowFilesModal("my-assets")}
               className="w-full text-left px-2 py-[6px] rounded flex items-center gap-2 transition-colors text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
             >
               <Folder size={18} />
@@ -209,6 +209,7 @@ export default function ChannelList() {
           serverId={currentServer.id}
           serverName={currentServer.name}
           onClose={() => setShowFilesModal(false)}
+          entryType={showFilesModal}
         />
       )}
     </div>
