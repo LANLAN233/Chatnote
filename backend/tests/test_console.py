@@ -329,3 +329,85 @@ async def test_server_console_with_session(client: AsyncClient, auth_headers: di
     assert data["success"] is True
     assert data["data"]["session_id"] == session_id
     assert data["data"]["server_id"] == server.id
+
+
+# ---------------------------------------------------------------------------
+# Console import tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_console_import_creates_note_in_selected_channel(client: AsyncClient, auth_headers: dict, db_session):
+    server = Server(user_id=1, name="ImportServer")
+    db_session.add(server)
+    await db_session.flush()
+    channel = Channel(server_id=server.id, name="ImportChannel")
+    db_session.add(channel)
+    await db_session.flush()
+
+    response = await client.post(
+        "/api/console/import",
+        json={
+            "content": "Selected console text",
+            "server_id": server.id,
+            "channel_id": channel.id,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["server_id"] == server.id
+    assert data["data"]["channel_id"] == channel.id
+    assert data["data"]["note"]["content"] == "Selected console text"
+    assert data["message"] == "Imported to channel"
+
+
+@pytest.mark.asyncio
+async def test_console_import_supports_natural_language_target(client: AsyncClient, auth_headers: dict, db_session):
+    server = Server(user_id=1, name="高等数学")
+    db_session.add(server)
+    await db_session.flush()
+    channel = Channel(server_id=server.id, name="极限")
+    db_session.add(channel)
+    await db_session.flush()
+
+    response = await client.post(
+        "/api/console/import",
+        json={
+            "content": "lim x -> 0 sin(x) / x = 1",
+            "target_text": "@高等数学 #极限",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["server_id"] == server.id
+    assert data["data"]["channel_id"] == channel.id
+    assert data["data"]["note"]["raw_input"] == "[Imported from console]"
+
+
+@pytest.mark.asyncio
+async def test_console_import_rejects_channel_outside_server(client: AsyncClient, auth_headers: dict, db_session):
+    server = Server(user_id=1, name="ImportServer")
+    other_server = Server(user_id=1, name="OtherServer")
+    db_session.add_all([server, other_server])
+    await db_session.flush()
+    channel = Channel(server_id=other_server.id, name="WrongChannel")
+    db_session.add(channel)
+    await db_session.flush()
+
+    response = await client.post(
+        "/api/console/import",
+        json={
+            "content": "Should not import",
+            "server_id": server.id,
+            "channel_id": channel.id,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Channel not found"

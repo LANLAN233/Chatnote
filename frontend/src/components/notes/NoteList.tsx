@@ -6,7 +6,7 @@ import {
   CornerDownLeft, Reply,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { useNoteStore, useChannelStore, useAuthStore } from "../../stores";
+import { useNoteStore, useChannelStore, useAuthStore, useThreadStore } from "../../stores";
 import { noteApi } from "../../services";
 import type { Attachment, NoteReplyPreview } from "../../types";
 import NoteEditor from "./NoteEditor";
@@ -287,7 +287,7 @@ function NoteRow({
   onReply,
   onPinToggle,
 }: {
-  note: { id: number; content: string; content_type: string; created_at: string; is_edited: boolean; is_pinned?: boolean; reply_to_id?: number | null; reply_preview?: { content: string } | null; user_tags?: string | null; ai_category?: string | null; attachments?: Attachment[] };
+  note: { id: number; content: string; content_type: string; created_at: string; is_edited: boolean; is_pinned?: boolean; reply_to_id?: number | null; thread_id?: number | null; reply_preview?: { content: string } | null; user_tags?: string | null; ai_category?: string | null; attachments?: Attachment[] };
   isSameSender: boolean;
   userName: string;
   searchQuery: string;
@@ -308,7 +308,16 @@ function NoteRow({
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const { updateNote, deleteNote } = useNoteStore();
+  const { fetchThreadCount, threadCounts, setCurrentThreadId, createThread } = useThreadStore();
   const deleteRef = useRef<HTMLDivElement>(null);
+
+  // Fetch thread message count when note has a thread
+  const threadCount = note.thread_id ? threadCounts[note.thread_id] : undefined;
+  useEffect(() => {
+    if (note.thread_id) {
+      fetchThreadCount(note.thread_id);
+    }
+  }, [note.thread_id, fetchThreadCount]);
 
   const handleSave = async () => {
     await updateNote(note.id, { content: editContent });
@@ -356,6 +365,8 @@ function NoteRow({
       toast.textContent = "TTS 功能即将上线";
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 2000);
+    } else if (action === "create-thread") {
+      createThread(note.id);
     } else if (action === "delete") {
       setShowDeleteConfirm(true);
     }
@@ -515,6 +526,21 @@ function NoteRow({
           </div>
         )}
 
+        {/* Thread count / link */}
+        {!isEditing && note.thread_id && (
+          <div className="mt-2">
+            <button
+              onClick={() => setCurrentThreadId(note.thread_id!)}
+              className="text-xs text-[#6d6f78] hover:text-[#dbdee1] cursor-pointer transition-colors"
+              data-testid="thread-count-btn"
+            >
+              {threadCount !== undefined
+                ? `${threadCount} 则讯息`
+                : "讨论串"}
+            </button>
+          </div>
+        )}
+
         {note.attachments && note.attachments.length > 0 && !isEditing && (
           <AttachmentCard attachments={note.attachments} />
         )}
@@ -570,6 +596,7 @@ function NoteRow({
           x={contextMenu.x}
           y={contextMenu.y}
           isPinned={!!note.is_pinned}
+          showCreateThread={!note.thread_id}
           onAction={handleContextMenuAction}
           onClose={() => setContextMenu(null)}
         />

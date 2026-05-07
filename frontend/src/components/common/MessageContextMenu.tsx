@@ -7,6 +7,7 @@ import {
   Pin,
   PinOff,
   MessageSquareDot,
+  MessageSquarePlus,
   Link,
   Volume2,
   Trash2,
@@ -20,12 +21,14 @@ export type MenuAction =
   | "mark-unread"
   | "copy-link"
   | "tts"
-  | "delete";
+  | "delete"
+  | "create-thread";
 
 interface MessageContextMenuProps {
   x: number;
   y: number;
   isPinned: boolean;
+  showCreateThread?: boolean;
   onAction: (action: MenuAction) => void;
   onClose: () => void;
 }
@@ -34,6 +37,7 @@ export default function MessageContextMenu({
   x,
   y,
   isPinned,
+  showCreateThread = true,
   onAction,
   onClose,
 }: MessageContextMenuProps) {
@@ -65,16 +69,18 @@ export default function MessageContextMenu({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [onClose]);
 
-  const items: { action: MenuAction; label: string; icon: React.ReactNode; danger?: boolean }[] = [
+  const allItems: { action: MenuAction; label: string; icon: React.ReactNode; danger?: boolean }[] = [
     { action: "edit", label: "Edit Message", icon: <Pencil className="w-4 h-4" /> },
     { action: "reply", label: "Reply", icon: <Reply className="w-4 h-4" /> },
     { action: "copy-text", label: "Copy Text", icon: <Copy className="w-4 h-4" /> },
-    { action: "pin", label: isPinned ? "Unpin Message" : "Pin Message", icon: isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" /> },
-    { action: "mark-unread", label: "Mark Unread", icon: <MessageSquareDot className="w-4 h-4" /> },
-    { action: "copy-link", label: "Copy Message Link", icon: <Link className="w-4 h-4" /> },
-    { action: "tts", label: "Voice Message", icon: <Volume2 className="w-4 h-4" /> },
-    { action: "delete", label: "Delete Message", icon: <Trash2 className="w-4 h-4" />, danger: true },
+    { action: "create-thread" as const, label: "建立讨论串", icon: <MessageSquarePlus className="w-4 h-4" /> },
+    { action: "pin" as const, label: isPinned ? "Unpin Message" : "Pin Message", icon: isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" /> },
+    { action: "mark-unread" as const, label: "Mark Unread", icon: <MessageSquareDot className="w-4 h-4" /> },
+    { action: "copy-link" as const, label: "Copy Message Link", icon: <Link className="w-4 h-4" /> },
+    { action: "tts" as const, label: "Voice Message", icon: <Volume2 className="w-4 h-4" /> },
+    { action: "delete" as const, label: "Delete Message", icon: <Trash2 className="w-4 h-4" />, danger: true },
   ];
+  const items = showCreateThread ? allItems : allItems.filter((item) => item.action !== "create-thread");
 
   const menu = (
     <div

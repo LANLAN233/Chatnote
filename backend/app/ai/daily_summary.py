@@ -237,6 +237,7 @@ Your task:
 async def generate_daily_summary_pipeline(
     user_id: int,
     db: AsyncSession,
+    target_date: date | None = None,
 ) -> dict[str, Any]:
     """Generate a daily learning summary using a three-stage model pipeline.
 
@@ -248,7 +249,8 @@ async def generate_daily_summary_pipeline(
     """
     from app.ai.models import get_model_by_tier
 
-    target_date = date.today() - timedelta(days=1)
+    if target_date is None:
+        target_date = date.today() - timedelta(days=1)
 
     # Fetch notes for the target date
     result = await db.execute(
@@ -394,6 +396,6 @@ async def generate_daily_summary_pipeline(
     except Exception:
         # Fallback to single-model generate_daily_summary
         logger.info("Pipeline failed, falling back to single-model daily summary")
-        fallback = await generate_daily_summary(target_date, user_id, db)
+        fallback = await generate_daily_summary(target_date, user_id, db)  # type: ignore[arg-type]
         fallback["stages"] = stages
         return fallback

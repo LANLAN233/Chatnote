@@ -1,6 +1,7 @@
 """Console router — handles console input, command routing, skill dispatch, and session management."""
 
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -20,10 +21,12 @@ from app.schemas.schemas import (
     ApiResponse,
     ConsoleArchiveRequest,
     ConsoleExecuteRequest,
+    ConsoleImportRequest,
     ConsoleSessionCreate,
     ConsoleSessionResponse,
     ConsoleSessionUpdate,
     NoteCreateWithClassify,
+    NoteResponse,
 )
 from app.services.parser import parse_input
 
@@ -54,6 +57,18 @@ def _session_to_dict(session: ConsoleSession, include_messages: bool = False) ->
             for m in session.messages
         ]
     return data
+
+
+def _parse_import_target(target_text: str | None) -> tuple[str | None, str | None]:
+    """Extract @Server and #Channel names from a natural-language target."""
+    if not target_text:
+        return None, None
+
+    server_match = re.search(r"@(.+?)(?=\s+#|$)", target_text.strip())
+    channel_match = re.search(r"#(.+)$", target_text.strip())
+    server_name = server_match.group(1).strip() if server_match else None
+    channel_name = channel_match.group(1).strip() if channel_match else None
+    return server_name or None, channel_name or None
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +216,65 @@ async def _save_message(
     return msg
 
 
+async def _route_query_skill(
+    parsed,
+    user_id: int,
+    db: AsyncSession,
+    known_server_id: int | None = None,
+    known_server_name: str | None = None,
+) -> dict | None:
+    """Route @Server #Channel question patterns to the $query skill.
+
+    Resolves server/channel names to IDs, then dispatches to the query skill.
+    Returns None if resolution fails (e.g., server not found).
+    """
+    server_id = known_server_id
+    server_name = known_server_name
+    channel_id = None
+    channel_name = None
+
+    # Resolve server name if not already known
+    if not server_id and parsed.server_name:
+        result = await db.execute(
+            select(Server).where(Server.user_id == user_id, Server.name == parsed.server_name)
+        )
+        srv = result.scalar_one_or_none()
+        if not srv:
+            return None  # Server not found → fall through to note creation
+        server_id = srv.id
+        server_name = srv.name
+
+    if not server_id:
+        return None
+
+    # Resolve channel name if present
+    if parsed.channel_name:
+        result = await db.execute(
+            select(Channel).where(Channel.server_id == server_id, Channel.name == parsed.channel_name)
+        )
+        ch = result.scalar_one_or_none()
+        if ch:
+            channel_id = ch.id
+            channel_name = ch.name
+
+    question = parsed.content.strip()
+    if not question:
+        return None
+
+    return await _dispatch_skill(
+        "query",
+        question,
+        user_id,
+        db,
+        server_context={
+            "server_id": server_id,
+            "server_name": server_name or "Unknown",
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+        },
+    )
+
+
 async def _clear_session_messages(session_id: int, db: AsyncSession) -> None:
     """Remove all messages from a session."""
     result = await db.execute(
@@ -235,6 +309,76 @@ async def _dispatch_skill(
 # ---------------------------------------------------------------------------
 # Execute endpoints
 # ---------------------------------------------------------------------------
+
+@router.post("/api/console/import", response_model=ApiResponse)
+async def import_console_content(
+    req: ConsoleImportRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import selected console content into a specific server/channel as a note."""
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Content is required")
+
+    server_id = req.server_id
+    channel_id = req.channel_id
+    server_name, channel_name = _parse_import_target(req.target_text)
+
+    if server_name:
+        result = await db.execute(
+            select(Server).where(Server.user_id == current_user.id, Server.name == server_name)
+        )
+        server = result.scalar_one_or_none()
+        if not server:
+            raise HTTPException(status_code=404, detail="Server not found")
+        server_id = server.id
+
+    if channel_name:
+        if not server_id:
+            raise HTTPException(status_code=400, detail="Target server and channel are required")
+        result = await db.execute(
+            select(Channel).where(Channel.server_id == server_id, Channel.name == channel_name)
+        )
+        channel = result.scalar_one_or_none()
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        channel_id = channel.id
+
+    if not server_id or not channel_id:
+        raise HTTPException(status_code=400, detail="Target server and channel are required")
+
+    server = await db.get(Server, server_id)
+    if not server or server.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    channel = await db.get(Channel, channel_id)
+    if not channel or channel.server_id != server.id:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    note = Note(
+        channel_id=channel.id,
+        user_id=current_user.id,
+        content=content,
+        content_type="markdown",
+        raw_input="[Imported from console]",
+        ai_tags='["console", "import"]',
+    )
+    db.add(note)
+    await db.flush()
+    await db.refresh(note)
+    await db.refresh(note, ["attachments", "reply_to"])
+
+    return ApiResponse(
+        success=True,
+        data={
+            "note": NoteResponse.model_validate(note).model_dump(),
+            "server_id": server.id,
+            "channel_id": channel.id,
+        },
+        message="Imported to channel",
+    )
+
 
 @router.post("/api/console/execute", response_model=ApiResponse)
 async def console_execute(
@@ -277,6 +421,24 @@ async def console_execute(
         result = await execute_command(parsed.command, parsed.command_args, db, current_user.id)
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
         return ApiResponse(success=True, data={**result, "session_id": session.id})
+
+    # --- $query Skill Routing (@Server #Channel question) ---
+    if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
+        if (parsed.server_name or parsed.channel_name) and parsed.content.strip():
+            query_result = await _route_query_skill(
+                parsed, current_user.id, db
+            )
+            if query_result is not None:
+                await _save_message(
+                    session.id, "assistant",
+                    query_result.get("content", ""),
+                    query_result.get("type", "text"),
+                    db,
+                )
+                return ApiResponse(
+                    success=True,
+                    data={**query_result, "session_id": session.id, "routed_skill": "query"},
+                )
 
     # --- AI Intent Routing (natural language → skill auto-match) ---
     if req.ai_enabled:
@@ -396,6 +558,46 @@ async def server_console_execute(
         )
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
         return ApiResponse(success=True, data={**result, "session_id": session.id})
+
+    # --- $query Skill Routing (#Channel question in server context) ---
+    if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
+        if parsed.content.strip():
+            query_channel_id = None
+            query_channel_name = None
+            if parsed.channel_name:
+                ch_result = await db.execute(
+                    select(Channel).where(
+                        Channel.server_id == server_id,
+                        Channel.name == parsed.channel_name,
+                    )
+                )
+                ch = ch_result.scalar_one_or_none()
+                if ch:
+                    query_channel_id = ch.id
+                    query_channel_name = ch.name
+
+            query_result = await _dispatch_skill(
+                "query",
+                parsed.content.strip(),
+                current_user.id,
+                db,
+                server_context={
+                    "server_id": server_id,
+                    "server_name": server.name,
+                    "channel_id": query_channel_id,
+                    "channel_name": query_channel_name,
+                },
+            )
+            await _save_message(
+                session.id, "assistant",
+                query_result.get("content", ""),
+                query_result.get("type", "text"),
+                db,
+            )
+            return ApiResponse(
+                success=True,
+                data={**query_result, "session_id": session.id, "routed_skill": "query"},
+            )
 
     # --- AI Intent Routing (natural language → skill auto-match) ---
     if req.ai_enabled:

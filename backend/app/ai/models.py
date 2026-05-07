@@ -14,31 +14,43 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
         "default_model": "deepseek-chat",
+        "fast_model": "deepseek-chat",
+        "strong_model": "deepseek-reasoner",
         "vision_model": "deepseek-chat",
     },
     "zhipu": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "default_model": "glm-4-flash",
+        "fast_model": "glm-4-flash",
+        "strong_model": "glm-4-plus",
         "vision_model": "glm-4v",
     },
     "qwen": {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "default_model": "qwen-turbo",
+        "fast_model": "qwen-turbo",
+        "strong_model": "qwen-max",
         "vision_model": "qwen-vl-max",
     },
     "openai": {
         "base_url": None,
         "default_model": "gpt-3.5-turbo",
+        "fast_model": "gpt-4o-mini",
+        "strong_model": "gpt-4o",
         "vision_model": "gpt-4o",
     },
     "opencode-zen": {
         "base_url": "https://opencode.ai/zen/v1",
         "default_model": "kimi-k2.6",
+        "fast_model": "kimi-k2.6",
+        "strong_model": "deepseek-v4",
         "vision_model": "kimi-k2.6",
     },
     "opencode-go": {
-        "base_url": "https://opencode.ai/zen/go/v1",
+        "base_url": "https://api.opencode.ai/go/v1",
         "default_model": "kimi-k2.6",
+        "fast_model": "kimi-k2.6",
+        "strong_model": "deepseek-v4",
         "vision_model": "kimi-k2.6",
     },
 }
@@ -126,6 +138,80 @@ async def get_model_for_user(
     )
 
 
+async def get_model_by_tier(
+    user_id: int,
+    db: AsyncSession,
+    tier: str = "fast",
+) -> OpenAIChat | None:
+    """Create an Agno OpenAIChat instance dynamically based on a capability tier."""
+    provider = "deepseek"
+
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
+    if user:
+        provider = user.preferred_llm or "deepseek"
+
+    if provider == "mock":
+        return None
+
+    key_result = await db.execute(
+        select(UserApiKey).where(
+            UserApiKey.user_id == user_id,
+            UserApiKey.provider == provider,
+        ).order_by(UserApiKey.is_default.desc())
+    )
+    api_key_record = key_result.scalars().first() if key_result else None
+
+    if api_key_record is None:
+        any_result = await db.execute(
+            select(UserApiKey).where(
+                UserApiKey.user_id == user_id,
+                UserApiKey.provider != "mock",
+            )
+        )
+        api_key_record = any_result.scalars().first() if any_result else None
+        if api_key_record:
+            provider = api_key_record.provider
+
+    if api_key_record is None:
+        if user and user.api_key_encrypted:
+            try:
+                decrypted_key = decrypt(user.api_key_encrypted)
+            except Exception:
+                logger.warning("Failed to decrypt legacy API key")
+                return None
+        else:
+            logger.warning("No API key for user %d, returning None", user_id)
+            return None
+    else:
+        try:
+            decrypted_key = decrypt(api_key_record.api_key_encrypted)
+        except Exception:
+            logger.warning("Failed to decrypt API key, returning None")
+            return None
+
+    config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["deepseek"])
+    model_id = _resolve_tier_model_id(api_key_record, config, tier)
+
+    logger.info(
+        "Creating tiered model for user %d: provider=%s tier=%s model=%s",
+        user_id, provider, tier, model_id,
+    )
+
+    return OpenAIChat(
+        id=model_id,
+        api_key=decrypted_key,
+        base_url=config["base_url"],
+        role_map={
+            "system": "system",
+            "user": "user",
+            "assistant": "assistant",
+            "tool": "tool",
+            "model": "assistant",
+        },
+    )
+
+
 def _resolve_model_id(
     api_key_record: UserApiKey | None,
     config: dict,
@@ -135,6 +221,22 @@ def _resolve_model_id(
         return api_key_record.model
     if use_vision:
         return config["vision_model"]
+    return config["default_model"]
+
+
+def _resolve_tier_model_id(
+    api_key_record: UserApiKey | None,
+    config: dict[str, Any],
+    tier: str,
+) -> str:
+    if api_key_record and api_key_record.model:
+        return api_key_record.model
+
+    normalized_tier = tier.lower()
+    if normalized_tier == "strong":
+        return config.get("strong_model", config["default_model"])
+    if normalized_tier == "fast":
+        return config.get("fast_model", config["default_model"])
     return config["default_model"]
 
 

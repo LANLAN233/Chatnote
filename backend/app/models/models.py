@@ -86,6 +86,7 @@ class Note(Base):
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     ai_tags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    thread_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("threads.id", ondelete="CASCADE"), nullable=True)
     # Phase 12: message interactions
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     reply_to_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
@@ -97,7 +98,25 @@ class Note(Base):
     channel: Mapped["Channel"] = relationship(back_populates="notes")
     user: Mapped["User"] = relationship()
     attachments: Mapped[list["Attachment"]] = relationship("Attachment", back_populates="note", cascade="all, delete-orphan")
+    thread: Mapped["Thread | None"] = relationship(back_populates="notes", foreign_keys=[thread_id])
     reply_to: Mapped["Note | None"] = relationship("Note", remote_side="Note.id", backref="replies")
+
+
+class Thread(Base):
+    __tablename__ = "threads"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
+    parent_note_id: Mapped[int] = mapped_column(Integer, ForeignKey("notes.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    channel: Mapped["Channel"] = relationship()
+    parent_note: Mapped["Note"] = relationship("Note", foreign_keys=[parent_note_id])
+    creator: Mapped["User"] = relationship()
+    notes: Mapped[list["Note"]] = relationship("Note", back_populates="thread", cascade="all, delete-orphan", foreign_keys="Note.thread_id")
 
 
 class Schedule(Base):

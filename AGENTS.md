@@ -4,8 +4,8 @@
 
 Graduation thesis (毕设) project. Phase 1 (项目骨架 + 基础 CRUD) is **complete**.
 
-- `backend/` — FastAPI backend with auth, Server/Channel/Note CRUD (23 tests passing)
-- `frontend/` — React 19 + TypeScript + TailwindCSS frontend with Discord-style UI (5 tests passing)
+- `backend/` — FastAPI backend with auth, Server/Channel/Note CRUD (93 tests passing)
+- `frontend/` — React 19 + TypeScript + TailwindCSS frontend with Discord-style UI (14 tests passing)
 - `docs/` — requirements and development plan (source of truth for architecture)
 - `demo/bishe-main/` — Gemini-based prototype (gitignored, reference only)
 - `skills/` — tooling (gitignored)
@@ -19,12 +19,14 @@ Graduation thesis (毕设) project. Phase 1 (项目骨架 + 基础 CRUD) is **co
 - ✅ Phase 6: 设置实装 + AI 连接 + UI/UX 重构
 - ✅ Phase 7: 控制台会话 + 导航重构
 - ✅ Phase 8: 主页概要完善 + Inbox + 每日总结
-- ⬜ Phase 9: 频道体验修复（AI 发送逻辑、时区、复制、编辑 UI）
-- ⬜ Phase 10: 文件系统与附件重构（上传/预览/拖拽/Resources）
-- ⬜ Phase 11: @/# 指令联想与输入框统一
+- ✅ Phase 9: 频道体验修复（AI 发送逻辑、时区、复制、编辑 UI）
+- 🔶 Phase 10: 文件系统与附件重构（ServerFilesModal 已实装，拖拽上传已完成，仅 Resources 入口待完善）
+- ✅ Phase 11: @/# 指令联想与输入框统一
 - ⬜ Phase 11a: 控制台引用查询与内容导入（@# 引用查询 + 内容选取导入）
-- ⬜ Phase 12: 消息交互增强（右键菜单、钉选、引用、Tag、TTS）
+- ✅ Phase 12: 消息交互增强（右键菜单、钉选、引用、Tag、TTS）
 - ⬜ Phase 13: 讨论串（Thread）系统
+- ⬜ Phase 14: 多AI编排优化（Inbox/每日总结/引用查询多Agent流水线）
+- ⬜ Phase 15: agno 工具生态接入（DuckDuckGo/Calculator/Python/Website Tools）
 
 ## Planned Tech Stack
 

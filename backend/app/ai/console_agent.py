@@ -5,8 +5,12 @@ we keep direct routing. The Agno Agent is used for smart classification
 and natural language understanding when needed.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any
+
+from agno.agent import Agent
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +20,8 @@ from app.ai.tools import (
     get_plugins_status_tool,
     get_stats_tool,
     get_today_schedules_tool,
+    make_get_stats_tool,
+    make_search_notes_tool,
     search_notes_tool,
 )
 from app.models.models import Channel, Note, Server
@@ -227,3 +233,110 @@ async def execute_command(
             "content": f"Unknown command: /{command}\nType /help to see available commands.",
         }
     return await handler(args, db, user_id)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# AI Agent (tool-equipped — Phase 15)
+# ─────────────────────────────────────────────────────────────────────
+
+CONSOLE_AGENT_INSTRUCTIONS = """You are ChatNote Console, an intelligent assistant embedded in a Discord-style study notes application.
+
+## Your Role
+- Help users manage and query their study notes, schedules, and tasks
+- Use the available tools to search their personal knowledge base before guessing
+- Answer questions about their notes, statistics, and study patterns
+
+## Available Tools
+- **search_notes(query: str)**: Search the user's personal notes by keyword. Returns JSON with found results and previews.
+- **get_stats()**: Get the user's statistics — server count, channel count, and total notes count.
+
+## Guidelines
+- **Always** use the tools to get accurate data before answering questions about the user's notes or statistics
+- If the user asks "how many notes", "what notes do I have about X", or "search my notes for Y", use search_notes() or get_stats()
+- Respond in the same language as the user's query
+- Be concise and helpful — don't over-explain when a simple answer suffices
+- Reference the tool results explicitly when answering (e.g. "You have 5 notes about linear algebra")"""
+
+
+def create_console_ai_agent(
+    db: AsyncSession,
+    user_id: int,
+    model: Any,  # agno OpenAIChat
+) -> Agent | None:
+    """Create an Agno Agent equipped with notes-search and stats tools.
+
+    Returns None when *model* is None (no API key configured) so that
+    callers can fall back to deterministic command handling.
+    """
+    if model is None:
+        return None
+
+    # Factory tools: capture db/user_id in closure for agno compatibility
+    search_notes = make_search_notes_tool(db, user_id)
+    get_stats = make_get_stats_tool(db, user_id)
+
+    return Agent(
+        model=model,
+        name="Console Agent",
+        system_message_role="system",
+        instructions=CONSOLE_AGENT_INSTRUCTIONS,
+        tools=[search_notes, get_stats],
+        read_tool_call_history=True,
+    )
+
+
+async def execute_agent_query(
+    input_text: str,
+    db: AsyncSession,
+    user_id: int,
+    model: Any,  # agno OpenAIChat | None
+) -> dict[str, Any]:
+    """Execute a natural-language query via the console AI agent.
+
+    When *model* is None the function returns an error message so that
+    callers don't need an extra guard — it degrades gracefully.
+    """
+    if not input_text.strip():
+        return {"type": "text", "content": "Please provide a query or command."}
+
+    agent = create_console_ai_agent(db, user_id, model)
+    if agent is None:
+        return {
+            "type": "error",
+            "content": "No AI model configured. Add an API key in Settings to enable AI queries.",
+        }
+
+    try:
+        response = await agent.arun(input=input_text)
+    except Exception as exc:
+        logger.exception("Console agent query failed")
+        return {
+            "type": "error",
+            "content": f"AI query failed: {exc}",
+        }
+
+    content = response.content if hasattr(response, "content") else str(response)
+
+    # ── Extract tool-call metadata from RunResponse ──────────────────
+    tool_calls: list[dict[str, Any]] = []
+    tool_results: list[dict[str, Any]] = []
+    if hasattr(response, "tools") and response.tools:
+        for tool_exec in response.tools:
+            tool_calls.append({
+                "tool_name": getattr(tool_exec, "tool_name", None),
+                "tool_args": getattr(tool_exec, "tool_args", None),
+                "tool_call_error": getattr(tool_exec, "tool_call_error", None),
+            })
+            tool_results.append({
+                "tool_name": getattr(tool_exec, "tool_name", None),
+                "result": getattr(tool_exec, "result", None),
+            })
+
+    return {
+        "type": "agent_response",
+        "content": content,
+        "data": {
+            "tool_calls": tool_calls,
+            "tool_results": tool_results,
+        },
+    }

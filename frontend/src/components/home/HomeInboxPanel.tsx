@@ -308,6 +308,22 @@ export default function HomeInboxPanel() {
 
         {items.map((item) => {
           const isSelected = selectedIds.has(item.id);
+          // Ensemble review status color logic
+          const isMismatch = item.ai_reviewed && item.ensemble_consistency === "不一致";
+          const isMatch = item.ai_reviewed && item.ensemble_consistency === "一致";
+          const highConf = (item.ai_confidence ?? 0) >= 0.85;
+          const confidenceBarColor = isMismatch
+            ? "bg-orange-500/20 text-orange-500"
+            : (isMatch || highConf)
+              ? "bg-green-500/20 text-green-400"
+              : "bg-amber-500/20 text-amber-400";
+          const confidenceTooltip = isMismatch
+            ? "建议人工确认 — 双模型结果不一致"
+            : isMatch
+              ? "双模型结果一致"
+              : highConf
+                ? "高置信度"
+                : `低置信度 (${((item.ai_confidence ?? 0) * 100).toFixed(0)}%)，建议复核`;
           return (
             <div
               key={item.id}
@@ -367,11 +383,22 @@ export default function HomeInboxPanel() {
                             @{item.ai_suggested_server}
                             {item.ai_suggested_channel ? ` #${item.ai_suggested_channel}` : ""}
                           </span>
-                          {item.ai_confidence !== null && (
-                            <span className="text-[10px] bg-[#5865f2]/20 text-[#5865f2] px-1.5 py-0.5 rounded">
-                              {(item.ai_confidence * 100).toFixed(0)}%
-                            </span>
-                          )}
+                        {item.ai_reviewed && (
+                          <span
+                            className="text-[10px] bg-green-500/20 text-green-400 border border-green-500/30 rounded px-1.5 py-0.5 font-medium"
+                            title={isMismatch ? "建议人工确认" : isMatch ? "双模型结果一致" : "已复核"}
+                          >
+                            AI复核
+                          </span>
+                        )}
+                        {item.ai_confidence !== null && (
+                          <span
+                            className={`text-[10px] ${confidenceBarColor} px-1.5 py-0.5 rounded transition-colors`}
+                            title={confidenceTooltip}
+                          >
+                            {(item.ai_confidence * 100).toFixed(0)}%
+                          </span>
+                        )}
                         </div>
                       )}
                       {item.ai_summary && (

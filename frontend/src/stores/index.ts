@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { authApi, serverApi, channelApi, noteApi, aiApi, settingsApi, apiKeyApi } from "../services";
+import { authApi, serverApi, channelApi, noteApi, aiApi, settingsApi, apiKeyApi, threadApi } from "../services";
 import wsService from "../services/websocket";
-import type { Channel, Note, NoteList, Server, SmartCreateResult, User, UserApiKey, UserSettingsUpdate } from "../types";
+import type { Channel, Note, NoteList, Server, SmartCreateResult, ThreadResponse, User, UserApiKey, UserSettingsUpdate } from "../types";
 
 interface AuthState {
   user: User | null;
@@ -281,4 +281,84 @@ export const useNoteStore = create<NoteState>((set, get) => ({
     }));
   },
   clearRealtimeNotes: () => set({ realtimeNotes: [] }),
+}));
+
+interface ThreadState {
+  currentThreadId: number | null;
+  thread: ThreadResponse | null;
+  isLoading: boolean;
+  threadCounts: Record<number, number>;
+  setCurrentThreadId: (id: number | null) => void;
+  clearCurrentThreadId: () => void;
+  fetchThread: (id: number) => Promise<void>;
+  fetchThreadCount: (id: number) => Promise<void>;
+  updateThreadTitle: (id: number, title: string) => Promise<void>;
+  postMessage: (threadId: number, content: string) => Promise<void>;
+  createThread: (noteId: number, title?: string) => Promise<ThreadResponse | null>;
+}
+
+export const useThreadStore = create<ThreadState>((set, get) => ({
+  currentThreadId: null,
+  thread: null,
+  isLoading: false,
+  threadCounts: {},
+  setCurrentThreadId: (id) => set({ currentThreadId: id }),
+  clearCurrentThreadId: () => set({ currentThreadId: null, thread: null }),
+  fetchThread: async (id) => {
+    set({ isLoading: true });
+    try {
+      const { data } = await threadApi.get(id);
+      if (data.success && data.data) {
+        set({ thread: data.data, isLoading: false });
+        // Cache the count (exclude parent message)
+        const count = data.data.messages ? data.data.messages.length - 1 : 0;
+        set((state) => ({
+          threadCounts: { ...state.threadCounts, [id]: count },
+        }));
+      } else {
+        set({ isLoading: false });
+      }
+    } catch {
+      set({ isLoading: false });
+    }
+  },
+  fetchThreadCount: async (id) => {
+    // Skip if already cached
+    if (get().threadCounts[id] !== undefined) return;
+    try {
+      const { data } = await threadApi.get(id);
+      if (data.success && data.data) {
+        const count = data.data.messages ? data.data.messages.length - 1 : 0;
+        set((state) => ({
+          threadCounts: { ...state.threadCounts, [id]: count },
+        }));
+      }
+    } catch {
+      // Silently fail — count stays unknown
+    }
+  },
+  updateThreadTitle: async (id, title) => {
+    await threadApi.update(id, { title });
+    await get().fetchThread(id);
+  },
+  postMessage: async (threadId, content) => {
+    await threadApi.postMessage(threadId, content);
+    await get().fetchThread(threadId);
+  },
+  createThread: async (noteId, title) => {
+    try {
+      const { data } = await threadApi.createThread(noteId, title);
+      if (data.success && data.data) {
+        set({ currentThreadId: data.data.id });
+        // Cache count as 0 (no replies yet, parent excluded)
+        set((state) => ({
+          threadCounts: { ...state.threadCounts, [data.data!.id]: 0 },
+        }));
+        return data.data;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
 }));

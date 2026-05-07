@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   BookOpen, Clock, ArrowRight, Star, Hash, Zap,
-  Flame, TrendingUp, Tag, Inbox, Loader2, Sparkles, RefreshCw
+  Flame, TrendingUp, Tag, Inbox, Loader2, Sparkles, RefreshCw,
+  ChevronDown, ChevronUp, Check, X
 } from "lucide-react";
 import { statsApi, aiApi, scheduleApi, inboxApi, channelApi } from "../../services";
 import { useServerStore, useChannelStore } from "../../stores";
@@ -11,7 +12,7 @@ import HomeConsolePanel from "./HomeConsolePanel";
 import ScheduleImportPanel from "./ScheduleImportPanel";
 import HomeInboxPanel from "./HomeInboxPanel";
 import SmartInput from "../common/SmartInput";
-import type { StatsData, SmartCreateResult, Schedule, Note, Channel, RecentNote } from "../../types";
+import type { StatsData, SmartCreateResult, Schedule, Note, Channel, RecentNote, DailySummaryResponse } from "../../types";
 
 interface OutletContext {
   homeTab: "overview" | "console" | "import" | "inbox" | "recent";
@@ -149,13 +150,9 @@ function OverviewTab() {
   const [showSearch, setShowSearch] = useState(false);
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
 
-  const [dailySummary, setDailySummary] = useState<{
-    summary: string;
-    keywords: Array<{ keyword: string; note_ids: number[] }>;
-    total_notes: number;
-    highlight_note_id: number | null;
-  } | null>(null);
+  const [dailySummary, setDailySummary] = useState<DailySummaryResponse | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [showStages, setShowStages] = useState(false);
 
   const loadStats = useCallback(async () => {
     if (!localStorage.getItem("token")) return;
@@ -178,7 +175,7 @@ function OverviewTab() {
     setSummaryLoading(true);
     try {
       const { data } = await statsApi.getDailySummary?.() ?? { data: null };
-      if (data?.data) setDailySummary(data.data as typeof dailySummary);
+      if (data?.data) setDailySummary(data.data as DailySummaryResponse);
     } catch {
       // silent
     } finally {
@@ -297,6 +294,12 @@ function OverviewTab() {
     const start = schedule.start_time.slice(0, 5);
     const end = schedule.end_time ? schedule.end_time.slice(0, 5) : null;
     return end ? `${start} - ${end}` : start;
+  };
+
+  const STAGE_DISPLAY_NAMES: Record<string, string> = {
+    extraction: "提取知识点",
+    summary: "生成总结",
+    keywords: "关联关键词",
   };
 
   return (
@@ -573,6 +576,49 @@ function OverviewTab() {
                     </div>
                   )}
                   <p className="text-[10px] text-[#949ba4]">基于 {dailySummary.total_notes} 条笔记</p>
+                  {dailySummary.stages && dailySummary.stages.length > 0 && (
+                    <>
+                      <button
+                        onClick={() => setShowStages(!showStages)}
+                        className="flex items-center gap-1.5 text-[10px] text-[#949ba4] hover:text-white transition-colors font-bold"
+                      >
+                        {showStages ? (
+                          <ChevronUp size={12} />
+                        ) : (
+                          <ChevronDown size={12} />
+                        )}
+                        {showStages ? "收起详情" : "展开详情"}
+                      </button>
+                      <div
+                        className={`overflow-hidden transition-all duration-300 ${
+                          showStages ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+                        }`}
+                      >
+                        <div className="pt-1 space-y-0">
+                          {dailySummary.stages.map((stage) => (
+                            <div
+                              key={stage.name}
+                              className="flex items-center gap-2 py-2 border-b border-[#1e1f22] last:border-b-0"
+                            >
+                              {stage.status === "completed" ? (
+                                <Check size={14} className="text-[#23a559] shrink-0" />
+                              ) : (
+                                <X size={14} className="text-[#f23f43] shrink-0" />
+                              )}
+                              <span
+                                className={`text-xs font-bold flex-1 ${
+                                  stage.status === "completed" ? "text-[#23a559]" : "text-[#f23f43]"
+                                }`}
+                              >
+                                {STAGE_DISPLAY_NAMES[stage.name] || stage.name}
+                              </span>
+                              <span className="text-[10px] text-[#949ba4]">{stage.duration_ms}ms</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <p className="text-[#949ba4] text-xs italic">暂无总结数据</p>

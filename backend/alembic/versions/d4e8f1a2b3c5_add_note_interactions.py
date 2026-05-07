@@ -19,19 +19,22 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('notes', sa.Column('is_pinned', sa.Boolean(), nullable=False, server_default='0'))
-    op.add_column('notes', sa.Column('reply_to_id', sa.Integer(), nullable=True))
-    op.add_column('notes', sa.Column('user_tags', sa.Text(), nullable=True))
-    op.create_foreign_key(
-        'fk_notes_reply_to_id',
-        'notes', 'notes',
-        ['reply_to_id'], ['id'],
-        ondelete='SET NULL'
-    )
+    with op.batch_alter_table('notes', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('is_pinned', sa.Boolean(), nullable=False, server_default='0'))
+        batch_op.add_column(sa.Column('reply_to_id', sa.Integer(), nullable=True))
+        batch_op.add_column(sa.Column('user_tags', sa.Text(), nullable=True))
+        batch_op.create_foreign_key(
+            'fk_notes_reply_to_id',
+            'notes',
+            ['reply_to_id'],
+            ['id'],
+            ondelete='SET NULL'
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint('fk_notes_reply_to_id', 'notes', type_='foreignkey')
-    op.drop_column('notes', 'user_tags')
-    op.drop_column('notes', 'reply_to_id')
-    op.drop_column('notes', 'is_pinned')
+    with op.batch_alter_table('notes', schema=None) as batch_op:
+        batch_op.drop_constraint('fk_notes_reply_to_id', type_='foreignkey')
+        batch_op.drop_column('user_tags')
+        batch_op.drop_column('reply_to_id')
+        batch_op.drop_column('is_pinned')

@@ -353,17 +353,15 @@ async def daily_summary(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a daily learning summary for the given date (default: yesterday)."""
-    from datetime import date as dt_date, timedelta
-    from app.ai.daily_summary import generate_daily_summary
+    from datetime import date as dt_date
+    from app.ai.daily_summary import generate_daily_summary_pipeline
 
-    target_date: dt_date
+    target_date: dt_date | None = None
     if date:
         try:
             target_date = dt_date.fromisoformat(date)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-    else:
-        target_date = dt_date.today() - timedelta(days=1)
 
-    result = await generate_daily_summary(target_date, current_user.id, db)
+    result = await generate_daily_summary_pipeline(current_user.id, db, target_date)
     return ApiResponse(success=True, data=result)

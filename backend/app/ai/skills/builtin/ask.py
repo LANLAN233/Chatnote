@@ -1,15 +1,39 @@
+"""$ask Skill — General-purpose AI Q&A assistant with agno tools.
+
+Equipped with DuckDuckGo web search, Calculator, Python sandbox,
+and custom note-search / stats tools that have full access to the
+user's ChatNote knowledge base.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
 from agno.agent import Agent
+from agno.tools.calculator import CalculatorTools
+from agno.tools.duckduckgo import DuckDuckGoTools
+from agno.tools.python import PythonTools
 
 from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
+from app.ai.tools import make_get_stats_tool, make_search_notes_tool
 
 
 class AskSkill(BaseSkill):
     name = "ask"
-    description = "通用 AI 问答助手"
+    description = "通用 AI 问答助手 — equipped with web search, calculator, Python, and note tools"
 
     async def execute(self, args: str, context: SkillContext) -> SkillResult:
         if not args.strip():
             return SkillResult(type="output", content="$ask: Please provide a question.")
+
+        # ── Instantiate agno built-in tools ────────────────────────────
+        duckduckgo = DuckDuckGoTools()
+        calculator = CalculatorTools()
+        python = PythonTools()  # sandbox enabled by default
+
+        # ── Factory tools need db/user_id captured in the closure ──────
+        search_notes = make_search_notes_tool(context.db, context.user_id)
+        get_stats = make_get_stats_tool(context.db, context.user_id)
 
         agent = Agent(
             model=context.model,
@@ -52,8 +76,47 @@ class AskSkill(BaseSkill):
    - When appropriate, summarize key takeaways at the end
 
 ## Remember
-You are part of their study workflow. Your answers should not just solve their immediate question but help them build a stronger, more organized knowledge base.""",
+You are part of their study workflow. Your answers should not just solve their immediate question but help them build a stronger, more organized knowledge base.
+
+## Available Tools
+- **DuckDuckGo**: Search the web for current information, facts, or external references.
+- **Calculator**: Perform precise mathematical calculations.
+- **Python**: Execute Python code for data analysis, visualization, or algorithmic problem solving.
+- **search_notes(query)**: Search the user's personal notes by keyword. Use this to find relevant study notes.
+- **get_stats()**: Get the user's statistics (server/channel/note counts). Use this for context about their knowledge base.""",
+            tools=[
+                duckduckgo,
+                calculator,
+                python,
+                search_notes,
+                get_stats,
+            ],
+            read_tool_call_history=True,
         )
+
         response = await agent.arun(input=args)
         content = response.content if hasattr(response, "content") else str(response)
-        return SkillResult(type="output", content=f"🤖 {content}")
+
+        # ── Extract tool call metadata from RunResponse ────────────────
+        tool_calls: list[dict[str, Any]] = []
+        tool_results: list[dict[str, Any]] = []
+        if hasattr(response, "tools") and response.tools:
+            for tool_exec in response.tools:
+                tool_calls.append({
+                    "tool_name": getattr(tool_exec, "tool_name", None),
+                    "tool_args": getattr(tool_exec, "tool_args", None),
+                    "tool_call_error": getattr(tool_exec, "tool_call_error", None),
+                })
+                tool_results.append({
+                    "tool_name": getattr(tool_exec, "tool_name", None),
+                    "result": getattr(tool_exec, "result", None),
+                })
+
+        return SkillResult(
+            type="output",
+            content=f"🤖 {content}",
+            data={
+                "tool_calls": tool_calls,
+                "tool_results": tool_results,
+            },
+        )

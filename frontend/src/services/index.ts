@@ -5,8 +5,11 @@ import type {
   ChannelCreate,
   ChannelUpdate,
   ClassificationResult,
+  ConsoleImportRequest,
+  ConsoleImportResult,
   ConsoleResult,
   ConsoleSession,
+  DailySummaryResponse,
   InboxItem,
   InboxItemArchiveRequest,
   InboxItemCreate,
@@ -21,6 +24,7 @@ import type {
   ServerUpdate,
   SmartCreateResult,
   StatsData,
+  ThreadResponse,
   User,
   UserApiKey,
 } from "../types";
@@ -105,6 +109,8 @@ export const serverConsoleApi = {
 export const consoleApi = {
   execute: (input: string, aiEnabled = false, sessionId?: number) =>
     api.post<ApiResponse<ConsoleResult | SmartCreateResult>>("/console/execute", { input, ai_enabled: aiEnabled, session_id: sessionId }),
+  importToChannel: (data: ConsoleImportRequest) =>
+    api.post<ApiResponse<ConsoleImportResult>>("/console/import", data),
 };
 
 export const consoleSessionApi = {
@@ -122,7 +128,7 @@ export const consoleSessionApi = {
 export const statsApi = {
   get: () => api.get<ApiResponse<StatsData>>("/stats"),
   getDailySummary: (date?: string) =>
-    api.get<ApiResponse<{ summary: string; keywords: Array<{ keyword: string; note_ids: number[] }>; total_notes: number; highlight_note_id: number | null }>>("/daily-summary", { params: date ? { date } : undefined }),
+    api.get<ApiResponse<DailySummaryResponse>>("/daily-summary", { params: date ? { date } : undefined }),
 };
 
 export const inboxApi = {
@@ -152,6 +158,14 @@ export const serverFileApi = {
   },
   delete: (serverId: number, fileId: number) =>
     api.delete<ApiResponse<null>>(`/server/${serverId}/files/${fileId}`),
+};
+
+export const threadApi = {
+  get: (id: number) => api.get<ApiResponse<ThreadResponse>>(`/threads/${id}`),
+  update: (id: number, data: { title: string }) => api.put<ApiResponse<ThreadResponse>>(`/threads/${id}`, data),
+  postMessage: (threadId: number, content: string) => api.post<ApiResponse<Note>>(`/threads/${threadId}/messages`, { content }),
+  createThread: (noteId: number, title?: string) =>
+    api.post<ApiResponse<ThreadResponse>>(`/notes/${noteId}/thread`, title ? { title } : {}),
 };
 
 export { attachmentApi, type Attachment } from "./attachmentApi";

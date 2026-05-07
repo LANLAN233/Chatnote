@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import ChannelList from "./ChannelList";
 import HomeSidebar from "../home/HomeSidebar";
+import ThreadPanel from "../thread/ThreadPanel";
 import { useServerStore } from "../../stores";
 import { statsApi } from "../../services";
 
@@ -44,6 +45,7 @@ export default function AppLayout() {
       <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0 bg-[#313338]">
         <Outlet context={{ homeTab, setHomeTab }} />
       </main>
+      <ThreadPanel />
     </div>
   );
 }
