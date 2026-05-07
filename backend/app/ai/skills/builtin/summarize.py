@@ -1,4 +1,5 @@
 from agno.agent import Agent
+from agno.tools.wikipedia import WikipediaTools
 from sqlalchemy import select
 
 from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
@@ -23,9 +24,14 @@ class SummarizeSkill(BaseSkill):
             model=context.model,
             name="Summarizer",
             system_message_role="system",
+            tools=[WikipediaTools()],
+            show_tool_calls=True,
             instructions="""You are an expert study note summarizer for ChatNote.
 
 Your task is to create structured, insightful summaries that help users review and retain knowledge efficiently.
+
+## Tools Available
+- **search_wikipedia**: Look up definitions and background for technical terms, concepts, or topics mentioned in the notes. Use this to enrich your summary with authoritative definitions.
 
 ## Summary Structure
 
@@ -37,6 +43,7 @@ Your task is to create structured, insightful summaries that help users review a
    - Extract the most important concepts, findings, or ideas
    - Use bold for critical terms or definitions
    - Maintain logical flow (chronological or thematic)
+   - Where helpful, include Wikipedia definitions for key technical terms
 
 3. **Themes & Connections**
    - Identify recurring themes across the notes
@@ -53,6 +60,7 @@ Your task is to create structured, insightful summaries that help users review a
 - Preserve technical accuracy; don't oversimplify to the point of being wrong
 - Format with Markdown for readability (headers, bold, lists)
 - If notes span multiple subjects, organize by subject
+- When you use Wikipedia, cite the page title as the source
 
 ## Remember
 Your summary should serve as a quick review tool. Someone reading it should grasp the essential content without re-reading all the original notes.""",
@@ -60,4 +68,20 @@ Your summary should serve as a quick review tool. Someone reading it should gras
         prompt = f"Recent notes:\n{ctx_text}\n\nRequest: {args or 'Summarize the recent notes'}"
         response = await agent.arun(input=prompt)
         content = response.content if hasattr(response, "content") else str(response)
-        return SkillResult(type="output", content=f"📋 $summarize\n{content}")
+
+        # Extract Wikipedia page titles from tool call results
+        wiki_sources: list[str] = []
+        tools = getattr(response, "tools", None)
+        if tools:
+            for tool in tools:
+                if tool.tool_name and "wikipedia" in tool.tool_name.lower():
+                    # Extract query from tool_args — it's the Wikipedia page title
+                    if tool.tool_args and "query" in tool.tool_args:
+                        wiki_sources.append(tool.tool_args["query"])
+        wiki_sources = list(dict.fromkeys(wiki_sources))  # deduplicate preserving order
+
+        return SkillResult(
+            type="output",
+            content=f"📋 $summarize\n{content}",
+            data={"wiki_sources": wiki_sources},
+        )
