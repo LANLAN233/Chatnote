@@ -1,14 +1,19 @@
 import asyncio
+import base64
 import json
 import logging
+import os
 import re
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -276,13 +281,21 @@ async def parse_schedule_import(
         content_items: list[dict] = []
         if text:
             content_items.append({"type": "text", "text": text})
+        # Convert local image URLs to base64 data URLs so the remote LLM can access them
+        resolved_image_url = _resolve_image_url(image_url)
+        logger.info("Schedule import: image_url=%s... resolved to %s...", 
+                     str(image_url)[:80], str(resolved_image_url)[:80])
         content_items.append({
             "type": "image_url",
-            "image_url": {"url": image_url},
+            "image_url": {"url": resolved_image_url},
         })
         input_content = content_items
     else:
         input_content = text or ""
+
+    logger.info("Schedule import: calling agent with input type=%s len=%s", 
+                type(input_content).__name__, 
+                len(str(input_content)) if isinstance(input_content, str) else len(str(input_content)))
 
     try:
         response = await asyncio.wait_for(
@@ -290,19 +303,38 @@ async def parse_schedule_import(
             timeout=90.0,
         )
         result = response.content
+        logger.info("Schedule import: agent response type=%s", type(result).__name__)
         if isinstance(result, ScheduleImportResult):
             parsed = result.model_dump()
+            logger.info("Schedule import: parsed as ScheduleImportResult, servers=%d schedules=%d",
+                       len(parsed.get('servers',[])), len(parsed.get('schedules',[])))
         elif isinstance(result, dict):
             parsed = result
+            logger.info("Schedule import: parsed as dict, keys=%s", list(parsed.keys())[:5])
         else:
             parsed = {"servers": [], "schedules": [], "suggestions": []}
+            logger.warning("Schedule import: unexpected response type: %s", type(result))
 
         # If AI returned empty results, try local parse as fallback
-        if not _has_meaningful_data(parsed) and text:
+        if not _has_meaningful_data(parsed):
             logger.info("Schedule import AI returned empty, trying local parse")
-            local = _try_local_parse_schedule_import(text)
-            if local:
-                return local
+            if text:
+                local = _try_local_parse_schedule_import(text)
+                if local:
+                    return local
+            # For image-only imports that failed, return a helpful message
+            if image_url and not text:
+                return {
+                    "servers": [],
+                    "schedules": [],
+                    "suggestions": [
+                        {
+                            "type": "error",
+                            "target_server": None,
+                            "message": "图片识别需要支持视觉的 AI 模型。请尝试同时提供文字描述（如课程名称、时间），或使用支持图片识别的模型。",
+                        }
+                    ],
+                }
 
         return parsed
     except Exception as e:
@@ -311,7 +343,74 @@ async def parse_schedule_import(
             local = _try_local_parse_schedule_import(text)
             if local:
                 return local
+        # For image-only imports that failed, return a helpful message
+        if image_url and not text:
+            return {
+                "servers": [],
+                "schedules": [],
+                "suggestions": [
+                    {
+                        "type": "error",
+                        "target_server": None,
+                        "message": "图片识别需要支持视觉的 AI 模型。请尝试同时提供文字描述（如课程名称、时间），或使用支持图片识别的模型。",
+                    }
+                ],
+            }
         return {"servers": [], "schedules": [], "suggestions": []}
+
+
+def _resolve_image_url(image_url: str) -> str:
+    """Convert local image URLs to base64 data URLs for remote LLM access.
+    
+    If the URL points to a local file (relative path or localhost), read the
+    file and convert to a base64 data URL. Otherwise return as-is for remote URLs.
+    """
+    # Already a data URL or remote URL
+    if image_url.startswith("data:") or image_url.startswith("https://"):
+        return image_url
+    
+    # Remove http://localhost:8000 prefix if present
+    local_path = image_url
+    if image_url.startswith("http://localhost"):
+        # Extract path after port
+        from urllib.parse import urlparse
+        parsed = urlparse(image_url)
+        local_path = parsed.path
+    
+    # If it starts with /uploads/, resolve relative to UPLOAD_DIR
+    if local_path.startswith("/uploads/"):
+        local_path = local_path[len("/uploads/"):]
+    
+    # Try to find the actual file
+    upload_dir = Path(settings.UPLOAD_DIR)
+    file_path = upload_dir / local_path
+    if not file_path.exists():
+        # Try without stripping prefix
+        file_path = Path(local_path.lstrip("/"))
+    
+    if not file_path.exists():
+        logger.warning("Image file not found for URL: %s", image_url)
+        return image_url  # Return original, let LLM handle it
+    
+    # Determine MIME type from extension
+    ext = file_path.suffix.lower()
+    mime_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }
+    mime_type = mime_map.get(ext, "image/png")
+    
+    try:
+        with open(file_path, "rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
+        logger.info("Converted local image to base64: %s (%d chars)", file_path.name, len(image_data))
+        return f"data:{mime_type};base64,{image_data}"
+    except Exception as e:
+        logger.warning("Failed to read image file %s: %s", file_path, e)
+        return image_url
 
 
 def _has_meaningful_data(parsed: dict) -> bool:

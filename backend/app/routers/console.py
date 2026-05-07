@@ -302,8 +302,15 @@ async def _dispatch_skill(
         model=model,
         server_context=server_context,
     )
-    result = await skill_registry.dispatch(skill_name, skill_args, context)
-    return {"type": result.type, "content": result.content, "data": result.data}
+    try:
+        result = await skill_registry.dispatch(skill_name, skill_args, context)
+        return {"type": result.type, "content": result.content, "data": result.data}
+    except Exception as exc:
+        logger.error("Skill %s dispatch failed: %s", skill_name, exc, exc_info=True)
+        return {
+            "type": "error",
+            "content": f"Skill ${skill_name} failed: {exc}. Please check your API key.",
+        }
 
 
 # ---------------------------------------------------------------------------

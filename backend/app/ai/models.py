@@ -40,17 +40,17 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "vision_model": "gpt-4o",
     },
     "opencode-zen": {
-        "base_url": "https://opencode.ai/zen/v1",
+        "base_url": "https://opencode.ai/zen/go/v1",
         "default_model": "kimi-k2.6",
         "fast_model": "kimi-k2.6",
-        "strong_model": "deepseek-v4",
+        "strong_model": "deepseek-v4-pro",
         "vision_model": "kimi-k2.6",
     },
     "opencode-go": {
-        "base_url": "https://api.opencode.ai/go/v1",
-        "default_model": "kimi-k2.6",
-        "fast_model": "kimi-k2.6",
-        "strong_model": "deepseek-v4",
+        "base_url": "https://opencode.ai/zen/go/v1",
+        "default_model": "deepseek-v4-pro",
+        "fast_model": "deepseek-v4-flash",
+        "strong_model": "deepseek-v4-pro",
         "vision_model": "kimi-k2.6",
     },
 }
@@ -217,10 +217,12 @@ def _resolve_model_id(
     config: dict,
     use_vision: bool,
 ) -> str:
-    if api_key_record and api_key_record.model:
-        return api_key_record.model
+    # Vision requests always use the configured vision model,
+    # not the user's custom model (which may not support images)
     if use_vision:
         return config["vision_model"]
+    if api_key_record and api_key_record.model:
+        return api_key_record.model
     return config["default_model"]
 
 
