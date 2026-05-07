@@ -143,6 +143,7 @@ class NoteResponse(BaseModel):
     ai_summary: str | None
     ai_confidence: float | None
     ai_tags: str | None
+    thread_id: int | None = None
     is_pinned: bool
     reply_to_id: int | None
     user_tags: str | None
@@ -160,6 +161,27 @@ class NoteListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ThreadCreate(BaseModel):
+    title: str | None = None
+
+
+class ThreadMessageCreate(BaseModel):
+    content: str = Field(..., min_length=1)
+
+
+class ThreadResponse(BaseModel):
+    id: int
+    channel_id: int
+    parent_note_id: int
+    title: str
+    created_by: int
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    messages: list[NoteResponse] | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class ClassifyRequest(BaseModel):
@@ -225,6 +247,13 @@ class ConsoleSessionResponse(BaseModel):
 class ConsoleArchiveRequest(BaseModel):
     server_id: int = Field(..., description="Target server ID")
     channel_id: int = Field(..., description="Target channel ID")
+
+
+class ConsoleImportRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+    server_id: int | None = None
+    channel_id: int | None = None
+    target_text: str | None = None
 
 
 class NoteCreateWithClassify(BaseModel):

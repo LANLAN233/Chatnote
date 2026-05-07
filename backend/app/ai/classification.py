@@ -22,6 +22,28 @@ class ClassificationResult(BaseModel):
     is_new_channel: bool = Field(description="Whether a new channel should be created")
 
 
+class EnsembleResult(BaseModel):
+    """Extended classification result with ensemble metadata.
+
+    Used by the two-stage classification pipeline (fast → strong models).
+    """
+    suggested_server: str
+    suggested_channel: str
+    confidence: float
+    tags: list[str] = Field(default_factory=list)
+    summary: str
+    is_new_server: bool
+    is_new_channel: bool
+    ai_reviewed: bool = Field(default=False, description="Whether strong model reviewed this")
+    ensemble_consistency: str | None = Field(
+        default=None, description="一致/不一致/None"
+    )
+    fast_confidence: float = Field(default=0.0, description="Fast model confidence")
+    strong_confidence: float | None = Field(
+        default=None, description="Strong model confidence"
+    )
+
+
 async def _get_existing_structure(db: AsyncSession, user_id: int) -> str:
     result = await db.execute(
         select(Server).where(Server.user_id == user_id).order_by(Server.sort_order)
@@ -154,6 +176,146 @@ async def classify_note(
             "is_new_server": True,
             "is_new_channel": True,
         }
+
+
+async def classify_note_ensemble(
+    content: str,
+    db: AsyncSession,
+    user_id: int,
+) -> dict[str, Any]:
+    """Two-stage classification pipeline using fast/strong model tiers.
+
+    Stage 1 (fast model): runs first-tier classification.
+    - If confidence >= 0.85, returns immediately with ai_reviewed=False.
+    - If confidence < 0.85, proceeds to Stage 2.
+
+    Stage 2 (strong model): runs second-tier classification.
+    - Compares fast vs strong results for server+channel match.
+    - 一致: bumps confidence, returns with consensus.
+    - 不一致: uses strong model result, appends "建议人工确认" to summary.
+
+    Falls back to single-model classify_note() when ANY agent fails
+    (model=None or exception).
+    """
+    from app.ai.models import get_model_by_tier
+
+    # --- Stage 1: Fast model ---
+    try:
+        fast_model = await get_model_by_tier(user_id, db, "fast")
+    except Exception as exc:
+        logger.warning(
+            "Failed to get fast model: %s, falling back to single-model", exc
+        )
+        return await classify_note(content, db, user_id)
+
+    if fast_model is None:
+        return await classify_note(content, db, user_id)
+
+    try:
+        fast_agent = create_classifier_agent(fast_model)
+        structure = await _get_existing_structure(db, user_id)
+        fast_response = await fast_agent.arun(
+            input=f"User's existing servers and channels:\n{structure}\n\n"
+            f"Classify this note:\n{content}"
+        )
+        fast_result = fast_response.content
+        if not isinstance(fast_result, ClassificationResult):
+            fast_result = ClassificationResult.model_validate(fast_result)
+        fast_dict = fast_result.model_dump()
+    except Exception as exc:
+        logger.warning(
+            "Fast classification failed: %s, falling back to single-model", exc
+        )
+        return await classify_note(content, db, user_id)
+
+    fast_confidence = float(fast_dict.get("confidence", 0.0))
+
+    # High confidence → return immediately
+    if fast_confidence >= 0.85:
+        return {
+            **fast_dict,
+            "ai_reviewed": False,
+            "ensemble_consistency": None,
+            "fast_confidence": fast_confidence,
+            "strong_confidence": None,
+        }
+
+    # --- Stage 2: Strong model ---
+    try:
+        strong_model = await get_model_by_tier(user_id, db, "strong")
+    except Exception as exc:
+        logger.warning(
+            "Failed to get strong model: %s, using fast result", exc
+        )
+        return {
+            **fast_dict,
+            "ai_reviewed": True,
+            "ensemble_consistency": None,
+            "fast_confidence": fast_confidence,
+            "strong_confidence": None,
+        }
+
+    if strong_model is None:
+        return {
+            **fast_dict,
+            "ai_reviewed": True,
+            "ensemble_consistency": None,
+            "fast_confidence": fast_confidence,
+            "strong_confidence": None,
+        }
+
+    try:
+        strong_agent = create_classifier_agent(strong_model)
+        strong_response = await strong_agent.arun(
+            input=f"User's existing servers and channels:\n{structure}\n\n"
+            f"Classify this note:\n{content}"
+        )
+        strong_result = strong_response.content
+        if not isinstance(strong_result, ClassificationResult):
+            strong_result = ClassificationResult.model_validate(strong_result)
+        strong_dict = strong_result.model_dump()
+    except Exception as exc:
+        logger.warning(
+            "Strong classification failed: %s, using fast result", exc
+        )
+        return {
+            **fast_dict,
+            "ai_reviewed": True,
+            "ensemble_consistency": None,
+            "fast_confidence": fast_confidence,
+            "strong_confidence": None,
+        }
+
+    strong_confidence = float(strong_dict.get("confidence", 0.0))
+
+    # Compare fast vs strong
+    fast_server = str(fast_dict.get("suggested_server", ""))
+    fast_channel = str(fast_dict.get("suggested_channel", ""))
+    strong_server = str(strong_dict.get("suggested_server", ""))
+    strong_channel = str(strong_dict.get("suggested_channel", ""))
+
+    if fast_server == strong_server and fast_channel == strong_channel:
+        # Consensus
+        final = dict(strong_dict)
+        final["confidence"] = max(fast_confidence, strong_confidence)
+        final["ensemble_consistency"] = "一致"
+        final["ai_reviewed"] = True
+        final["fast_confidence"] = fast_confidence
+        final["strong_confidence"] = strong_confidence
+    else:
+        # Disagreement → trust strong model, add manual-review hint
+        final = dict(strong_dict)
+        final["ensemble_consistency"] = "不一致"
+        final["ai_reviewed"] = True
+        final["fast_confidence"] = fast_confidence
+        final["strong_confidence"] = strong_confidence
+        existing = str(final.get("summary", ""))
+        if "建议人工确认" not in existing:
+            final["summary"] = (
+                f"{existing} [建议人工确认]" if existing else "建议人工确认"
+            )
+
+    return final
 
 
 async def resolve_classification(

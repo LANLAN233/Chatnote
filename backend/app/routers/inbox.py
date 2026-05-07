@@ -3,11 +3,11 @@
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.classification import classify_note, resolve_classification
+from app.ai.classification import classify_note, classify_note_ensemble, resolve_classification
 from app.database import get_db
 from app.models.models import Channel, InboxItem, Note, Server, User
 from app.routers.auth import get_current_user
@@ -138,6 +138,9 @@ async def delete_inbox(
 @router.post("/api/inbox/{item_id}/ai-suggest", response_model=ApiResponse)
 async def inbox_ai_suggest(
     item_id: int,
+    use_ensemble: bool = Query(
+        default=True, description="Use multi-agent ensemble classification"
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -146,7 +149,12 @@ async def inbox_ai_suggest(
     if not item or item.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Inbox item not found")
 
-    classification = await classify_note(item.content, db, current_user.id)
+    if use_ensemble:
+        classification = await classify_note_ensemble(
+            item.content, db, current_user.id
+        )
+    else:
+        classification = await classify_note(item.content, db, current_user.id)
     classification = await resolve_classification(classification, db, current_user.id)
 
     item.ai_suggested_server = classification.get("suggested_server")
