@@ -312,17 +312,18 @@ async def parse_schedule_import(
             parsed = result
             logger.info("Schedule import: parsed as dict, keys=%s", list(parsed.keys())[:5])
         else:
+            # Agent returned a string (often an error message) - treat as empty
+            logger.warning("Schedule import: agent returned string/error: %s", str(result)[:200])
             parsed = {"servers": [], "schedules": [], "suggestions": []}
-            logger.warning("Schedule import: unexpected response type: %s", type(result))
 
-        # If AI returned empty results, try local parse as fallback
+        # If AI returned empty results or error, try local parse as fallback
         if not _has_meaningful_data(parsed):
-            logger.info("Schedule import AI returned empty, trying local parse")
+            logger.info("Schedule import AI returned empty/error, trying local parse")
             if text:
                 local = _try_local_parse_schedule_import(text)
-                if local:
+                if local and _has_meaningful_data(local):
                     return local
-            # For image-only imports that failed, return a helpful message
+            # For image-only or AI-failed imports, return a helpful message
             if image_url and not text:
                 return {
                     "servers": [],
@@ -335,13 +336,26 @@ async def parse_schedule_import(
                         }
                     ],
                 }
+            # If text provided but AI failed and local parse also failed, show suggestion
+            if text:
+                return {
+                    "servers": [],
+                    "schedules": [],
+                    "suggestions": [
+                        {
+                            "type": "error",
+                            "target_server": None,
+                            "message": "AI 解析失败。请尝试使用更标准的格式，例如：\n课程名 周一 8:00-9:35\n第一章 内容",
+                        }
+                    ],
+                }
 
         return parsed
     except Exception as e:
         logger.warning("Schedule import via Agent failed: %s, trying local parse", e)
         if text:
             local = _try_local_parse_schedule_import(text)
-            if local:
+            if local and _has_meaningful_data(local):
                 return local
         # For image-only imports that failed, return a helpful message
         if image_url and not text:
@@ -433,19 +447,41 @@ def _has_meaningful_data(parsed: dict) -> bool:
     return False
 
 
+def _is_schedule_line(line: str) -> bool:
+    """Check if a line contains day-of-week and time info (without course name)."""
+    return bool(re.search(r"(周[一二三四五六日]|星期[一二三四五六日]|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*\d{1,2}:\d{2}", line))
+
+
+def _extract_schedule(line: str) -> tuple[str | None, str | None, str | None]:
+    """Extract day, start_time, end_time from a schedule-only line."""
+    m = re.search(r"(周[一二三四五六日]|星期[一二三四五六日]|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*(\d{1,2}:\d{2})\s*[-–—至到]\s*(\d{1,2}:\d{2})", line)
+    if m:
+        return m.group(1), m.group(2), m.group(3)
+    # Try without end time
+    m = re.search(r"(周[一二三四五六日]|星期[一二三四五六日]|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*(\d{1,2}:\d{2})", line)
+    if m:
+        return m.group(1), m.group(2), None
+    return None, None, None
+
+
 def _try_local_parse_schedule_import(text: str) -> dict | None:
     """Try local regex-based parsing of course schedule text into servers/channels/schedules.
     
-    Handles format like:
+    Handles formats like:
     CourseName DayOfWeek StartTime-EndTime
     Chapter1
     Chapter2
+    
+    Or:
+    CourseName
+    DayOfWeek StartTime-EndTime
+    Chapter1
     """
     import re
     from datetime import datetime, date, timedelta
     
     lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
-    if len(lines) < 2:
+    if len(lines) < 1:
         return None
     
     day_map = {
@@ -466,6 +502,7 @@ def _try_local_parse_schedule_import(text: str) -> dict | None:
     chapter_pattern = re.compile(r"^(第[一二三四五六七八九十\d]+[章节]|Unit\s*\d+|Chapter\s*\d+|[一二三四五六七八九十]、)\s*(.*)")
     
     i = 0
+    pending_course_name = None
     while i < len(lines):
         line = lines[i]
         course_match = course_pattern.match(line)
@@ -497,6 +534,36 @@ def _try_local_parse_schedule_import(text: str) -> dict | None:
                 "is_all_day": False,
                 "confidence": 0.85,
             })
+            pending_course_name = None
+        elif _is_schedule_line(line):
+            # Line has day+time but no course name - use pending name or previous server name
+            day_str, start_time, end_time = _extract_schedule(line)
+            if day_str is not None:
+                # Finish previous server if any
+                if current_server and current_channels:
+                    current_server["channels"] = current_channels
+                    servers.append(current_server)
+                    current_channels = []
+                
+                course_name = pending_course_name or (current_server["name"] if current_server else "未命名课程")
+                day_of_week = None
+                for k, v in day_map.items():
+                    if k in day_str:
+                        day_of_week = v
+                        break
+                
+                current_server = {"name": course_name, "channels": []}
+                schedules.append({
+                    "title": course_name,
+                    "description": None,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "day_of_week": day_of_week,
+                    "repeat_rule": {"type": "weekly"},
+                    "is_all_day": False,
+                    "confidence": 0.75,
+                })
+                pending_course_name = None
         elif chapter_pattern.match(line) and current_server:
             ch_match = chapter_pattern.match(line)
             ch_name = ch_match.group(2) if ch_match.group(2) else line
@@ -504,12 +571,20 @@ def _try_local_parse_schedule_import(text: str) -> dict | None:
                 "name": ch_name[:100],
                 "notes": [{"content": f"{current_server['name']} - {ch_name}"}]
             })
+        else:
+            # Could be a course name for the next schedule line
+            pending_course_name = line
         
         i += 1
     
-    # Add last server
-    if current_server and current_channels:
-        current_server["channels"] = current_channels
+    # Add last server (even if no chapters, so schedules have a home)
+    if current_server:
+        if current_channels:
+            current_server["channels"] = current_channels
+        else:
+            current_server["channels"] = [
+                {"name": "课程笔记", "notes": [{"content": f"{current_server['name']} 课程笔记"}]}
+            ]
         servers.append(current_server)
     
     if not servers and not schedules:
