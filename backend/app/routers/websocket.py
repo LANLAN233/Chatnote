@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from app.routers.auth import get_current_user_ws
 from app.services.websocket import manager
 
-router = APIRouter(prefix="/ws", tags=["websocket"])
+router = APIRouter(prefix="/api/ws", tags=["websocket"])
 
 
 @router.websocket("/")

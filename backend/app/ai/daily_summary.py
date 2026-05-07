@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -133,8 +134,11 @@ async def generate_daily_summary(
 
     try:
         agent = create_summary_agent(model)
-        response = await agent.arun(
-            input=f"Date: {target_date.isoformat()}\n\nUser's notes:\n{notes_text}"
+        response = await asyncio.wait_for(
+            agent.arun(
+                input=f"Date: {target_date.isoformat()}\n\nUser's notes:\n{notes_text}"
+            ),
+            timeout=90.0,
         )
 
         result = response.content
@@ -292,8 +296,11 @@ async def generate_daily_summary_pipeline(
                 raise RuntimeError("No fast model available")
 
             agent1 = _create_extraction_agent(fast_model)
-            response1 = await agent1.arun(
-                input=f"Date: {target_date.isoformat()}\n\nUser's notes:\n{notes_text}"
+            response1 = await asyncio.wait_for(
+                agent1.arun(
+                    input=f"Date: {target_date.isoformat()}\n\nUser's notes:\n{notes_text}"
+                ),
+                timeout=60.0,
             )
             raw1 = response1.content
             if not isinstance(raw1, ExtractedKnowledge):
@@ -323,12 +330,15 @@ async def generate_daily_summary_pipeline(
 
             agent2 = _create_pipeline_summary_agent(strong_model)
             concepts_text = "\n".join(f"- {c}" for c in extracted.concepts) if extracted else "(none)"
-            response2 = await agent2.arun(
-                input=(
-                    f"Date: {target_date.isoformat()}\n\n"
-                    f"Extracted knowledge points:\n{concepts_text}\n\n"
-                    f"Original notes for reference:\n{notes_text}"
-                )
+            response2 = await asyncio.wait_for(
+                agent2.arun(
+                    input=(
+                        f"Date: {target_date.isoformat()}\n\n"
+                        f"Extracted knowledge points:\n{concepts_text}\n\n"
+                        f"Original notes for reference:\n{notes_text}"
+                    )
+                ),
+                timeout=60.0,
             )
             raw2 = response2.content
             if not isinstance(raw2, StructuredSummary):
@@ -358,13 +368,16 @@ async def generate_daily_summary_pipeline(
 
             agent3 = _create_keyword_mapping_agent(fast_model2)
             concepts_text3 = "\n".join(f"- {c}" for c in extracted.concepts) if extracted else "(none)"
-            response3 = await agent3.arun(
-                input=(
-                    f"Date: {target_date.isoformat()}\n\n"
-                    f"Extracted knowledge:\n{concepts_text3}\n\n"
-                    f"Daily summary:\n{summary_result.summary if summary_result else '(none)'}\n\n"
-                    f"Original notes with IDs:\n{notes_text}"
-                )
+            response3 = await asyncio.wait_for(
+                agent3.arun(
+                    input=(
+                        f"Date: {target_date.isoformat()}\n\n"
+                        f"Extracted knowledge:\n{concepts_text3}\n\n"
+                        f"Daily summary:\n{summary_result.summary if summary_result else '(none)'}\n\n"
+                        f"Original notes with IDs:\n{notes_text}"
+                    )
+                ),
+                timeout=60.0,
             )
             raw3 = response3.content
             if not isinstance(raw3, KeywordMapping):

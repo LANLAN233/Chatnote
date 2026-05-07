@@ -285,6 +285,22 @@ def create_console_ai_agent(
     )
 
 
+_TOOL_ERROR_PATTERNS = [
+    "Error from provider",
+    "Provider returned error",
+    "does not support tools",
+    "tool_choice",
+    "tools not supported",
+]
+
+
+def _is_tool_error(content: str) -> bool:
+    for pattern in _TOOL_ERROR_PATTERNS:
+        if pattern.lower() in content.lower():
+            return True
+    return False
+
+
 async def execute_agent_query(
     input_text: str,
     db: AsyncSession,
@@ -295,29 +311,57 @@ async def execute_agent_query(
 
     When *model* is None the function returns an error message so that
     callers don't need an extra guard — it degrades gracefully.
+
+    Tries with tools first; falls back to plain agent if tool-calling is
+    not supported by the model.
     """
     if not input_text.strip():
         return {"type": "text", "content": "Please provide a query or command."}
 
-    agent = create_console_ai_agent(db, user_id, model)
-    if agent is None:
+    if model is None:
         return {
             "type": "error",
             "content": "No AI model configured. Add an API key in Settings to enable AI queries.",
         }
 
+    # ── Try with tools first ────────────────────────────────────────
+    agent = create_console_ai_agent(db, user_id, model)
+    if agent is not None:
+        try:
+            response = await agent.arun(input=input_text)
+        except Exception as exc:
+            logger.warning("Console agent with tools raised: %s, will fallback", exc)
+            response = None
+        else:
+            content = response.content if hasattr(response, "content") else str(response)
+            if not _is_tool_error(content):
+                return _build_agent_response(response)
+
+    # ── Fallback: plain agent without tools ─────────────────────────
+    logger.info("Console agent: tool-calling failed, falling back to plain agent")
     try:
-        response = await agent.arun(input=input_text)
+        plain_agent = Agent(
+            model=model,
+            name="Console Agent",
+            system_message_role="system",
+            instructions=CONSOLE_AGENT_INSTRUCTIONS,
+        )
+        response = await plain_agent.arun(input=input_text)
     except Exception as exc:
-        logger.exception("Console agent query failed")
+        logger.exception("Console plain agent query failed")
         return {
             "type": "error",
             "content": f"AI query failed: {exc}",
         }
 
     content = response.content if hasattr(response, "content") else str(response)
+    return {"type": "agent_response", "content": content, "data": {}}
 
-    # ── Extract tool-call metadata from RunResponse ──────────────────
+
+def _build_agent_response(response) -> dict[str, Any]:
+    """Build response dict from agno RunResponse with tool metadata."""
+    content = response.content if hasattr(response, "content") else str(response)
+
     tool_calls: list[dict[str, Any]] = []
     tool_results: list[dict[str, Any]] = []
     if hasattr(response, "tools") and response.tools:

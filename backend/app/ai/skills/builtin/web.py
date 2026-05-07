@@ -5,6 +5,9 @@ Two input modes:
   Uses WebsiteTools (read_url) + TrafilaturaTools (extract_text)
 - Search mode: $web 搜索关键词 → search web for results
   Uses DuckDuckGoTools (duckduckgo_search)
+
+If tool-calling is not supported by the model, returns an error message
+prompting the user to use a model that supports tools.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from agno.tools.trafilatura import TrafilaturaTools
 from agno.tools.website import WebsiteTools
 
 from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
+from app.ai.skills.builtin.ask import _is_tool_call_error
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +104,27 @@ class WebSkill(BaseSkill):
             instructions=_URL_AGENT_INSTRUCTIONS,
         )
 
-        response = await agent.arun(
-            input=f"Fetch and extract content from: {url}"
-        )
+        try:
+            response = await agent.arun(
+                input=f"Fetch and extract content from: {url}"
+            )
+        except Exception as exc:
+            logger.error("Web fetch failed: %s", exc)
+            return SkillResult(
+                type="error",
+                content=f"$web: URL fetch failed — {exc}",
+            )
+
         content = (
             response.content if hasattr(response, "content") else str(response)
         )
+
+        if _is_tool_call_error(content):
+            return SkillResult(
+                type="error",
+                content="$web: Your current AI model does not support tool calling (required for web fetching). "
+                "Try using a model that supports tools (e.g. deepseek-chat, gpt-4o), or switch to a compatible provider.",
+            )
 
         parsed = self._parse_json_response(content, url, mode="fetch")
         if parsed is None:
@@ -134,12 +153,27 @@ class WebSkill(BaseSkill):
             instructions=_SEARCH_AGENT_INSTRUCTIONS,
         )
 
-        response = await agent.arun(
-            input=f"Search query: {query}"
-        )
+        try:
+            response = await agent.arun(
+                input=f"Search query: {query}"
+            )
+        except Exception as exc:
+            logger.error("Web search failed: %s", exc)
+            return SkillResult(
+                type="error",
+                content=f"$web: Search failed — {exc}",
+            )
+
         content = (
             response.content if hasattr(response, "content") else str(response)
         )
+
+        if _is_tool_call_error(content):
+            return SkillResult(
+                type="error",
+                content="$web: Your current AI model does not support tool calling (required for web search). "
+                "Try using a model that supports tools (e.g. deepseek-chat, gpt-4o), or switch to a compatible provider.",
+            )
 
         parsed = self._parse_json_response(content, query, mode="search")
         if parsed is None:

@@ -1,9 +1,20 @@
+"""$summarize Skill — AI 摘要最近笔记。
+
+If the model does not support tool calling (e.g. WikipediaTools),
+it falls back to a plain-text agent without tools.
+"""
+
+import logging
+
 from agno.agent import Agent
 from agno.tools.wikipedia import WikipediaTools
 from sqlalchemy import select
 
 from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
+from app.ai.skills.builtin.ask import _is_tool_call_error
 from app.models.models import Note
+
+logger = logging.getLogger(__name__)
 
 
 class SummarizeSkill(BaseSkill):
@@ -19,14 +30,101 @@ class SummarizeSkill(BaseSkill):
         )
         recent = result.scalars().all()
         ctx_text = "\n".join([f"- {n.content[:200]}" for n in recent]) if recent else "(no notes)"
+        prompt = f"Recent notes:\n{ctx_text}\n\nRequest: {args or 'Summarize the recent notes'}"
 
+        # ── Try with WikipediaTools first ──────────────────────────────
+        result_data = await self._run_with_tools(prompt, context)
+        if result_data is not None:
+            return SkillResult(
+                type="output",
+                content=f"📋 $summarize\n{result_data['content']}",
+                data={"wiki_sources": result_data.get("wiki_sources", [])},
+            )
+
+        # ── Fallback: plain agent without tools ───────────────────────
+        logger.info("$summarize: tool-calling failed, falling back to plain agent")
+        return await self._run_plain(prompt, context)
+
+    async def _run_with_tools(self, prompt: str, context: SkillContext) -> dict | None:
+        """Try with WikipediaTools. Returns None if fallback needed."""
         agent = Agent(
             model=context.model,
             name="Summarizer",
             system_message_role="system",
             tools=[WikipediaTools()],
-            show_tool_calls=True,
-            instructions="""You are an expert study note summarizer for ChatNote.
+            read_tool_call_history=True,
+            instructions=_SUMMARIZE_INSTRUCTIONS_TOOLS,
+        )
+
+        try:
+            response = await agent.arun(input=prompt)
+        except Exception as exc:
+            logger.warning("$summarize with tools raised: %s, will fallback", exc)
+            return None
+
+        content = response.content if hasattr(response, "content") else str(response)
+
+        if _is_tool_call_error(content):
+            logger.warning("$summarize: tool-call error detected, will fallback")
+            return None
+
+        # Extract Wikipedia page titles from tool call results
+        wiki_sources: list[str] = []
+        tools = getattr(response, "tools", None)
+        if tools:
+            for tool in tools:
+                if tool.tool_name and "wikipedia" in tool.tool_name.lower():
+                    if tool.tool_args and "query" in tool.tool_args:
+                        wiki_sources.append(tool.tool_args["query"])
+        wiki_sources = list(dict.fromkeys(wiki_sources))
+
+        return {"content": content, "wiki_sources": wiki_sources}
+
+    async def _run_plain(self, prompt: str, context: SkillContext) -> SkillResult:
+        """Plain agent without tools."""
+        agent = Agent(
+            model=context.model,
+            name="Summarizer",
+            system_message_role="system",
+            instructions=_SUMMARIZE_INSTRUCTIONS_PLAIN,
+        )
+
+        try:
+            response = await agent.arun(input=prompt)
+        except Exception as exc:
+            logger.error("$summarize plain agent failed: %s", exc)
+            return SkillResult(
+                type="error",
+                content=f"$summarize 执行失败: {exc}",
+            )
+
+        content = response.content if hasattr(response, "content") else str(response)
+        return SkillResult(
+            type="output",
+            content=f"📋 $summarize\n{content}",
+            data={},
+        )
+
+
+_SUMMARIZE_INSTRUCTIONS_PLAIN = """You are an expert study note summarizer for ChatNote.
+
+Your task is to create structured, insightful summaries that help users review and retain knowledge efficiently.
+
+## Summary Structure
+
+1. **Overview** (1-2 sentences) — main theme, context
+2. **Key Points** (3-5 bullet points) — most important concepts, bold for critical terms
+3. **Themes & Connections** — recurring themes, concept connections, open questions
+4. **Action Items** (if applicable) — TODOs, deadlines, next steps
+
+## Quality Standards
+- Be concise but comprehensive
+- Use the same language as the source notes (Chinese or English)
+- Preserve technical accuracy
+- Format with Markdown (headers, bold, lists)
+- If notes span multiple subjects, organize by subject"""
+
+_SUMMARIZE_INSTRUCTIONS_TOOLS = """You are an expert study note summarizer for ChatNote.
 
 Your task is to create structured, insightful summaries that help users review and retain knowledge efficiently.
 
@@ -63,25 +161,4 @@ Your task is to create structured, insightful summaries that help users review a
 - When you use Wikipedia, cite the page title as the source
 
 ## Remember
-Your summary should serve as a quick review tool. Someone reading it should grasp the essential content without re-reading all the original notes.""",
-        )
-        prompt = f"Recent notes:\n{ctx_text}\n\nRequest: {args or 'Summarize the recent notes'}"
-        response = await agent.arun(input=prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-
-        # Extract Wikipedia page titles from tool call results
-        wiki_sources: list[str] = []
-        tools = getattr(response, "tools", None)
-        if tools:
-            for tool in tools:
-                if tool.tool_name and "wikipedia" in tool.tool_name.lower():
-                    # Extract query from tool_args — it's the Wikipedia page title
-                    if tool.tool_args and "query" in tool.tool_args:
-                        wiki_sources.append(tool.tool_args["query"])
-        wiki_sources = list(dict.fromkeys(wiki_sources))  # deduplicate preserving order
-
-        return SkillResult(
-            type="output",
-            content=f"📋 $summarize\n{content}",
-            data={"wiki_sources": wiki_sources},
-        )
+Your summary should serve as a quick review tool. Someone reading it should grasp the essential content without re-reading all the original notes."""

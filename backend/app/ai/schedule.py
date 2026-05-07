@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -225,7 +226,10 @@ async def parse_natural_language_schedule(
     )
 
     try:
-        response = await agent.arun(input=f"Parse: {text}")
+        response = await asyncio.wait_for(
+            agent.arun(input=f"Parse: {text}"),
+            timeout=90.0,
+        )
         result = response.content
         if isinstance(result, ParsedSchedule):
             return result.model_dump()
@@ -252,7 +256,19 @@ async def parse_schedule_import(
     image_url: str | None,
     model: OpenAIChat,
 ) -> dict[str, Any]:
-    """Parse course syllabus / schedule text or image into structured suggestions."""
+    """Parse course syllabus / schedule text or image into structured suggestions.
+    
+    Tries local regex first for text-only input (instant); falls back to AI agent
+    if local parse fails or for image input.
+    """
+    # ── Local parse for text-only input ──────────────────────────────
+    if text and not image_url:
+        local = _try_local_parse_schedule_import(text)
+        if local and _has_meaningful_data(local):
+            logger.info("Schedule import: using local regex parse (instant)")
+            return local
+    
+    # ── AI agent for complex text or image input ────────────────────
     agent = create_schedule_import_agent(model)
 
     input_content: str | list[dict] = ""
@@ -269,14 +285,144 @@ async def parse_schedule_import(
         input_content = text or ""
 
     try:
-        response = await agent.arun(input=input_content)
+        response = await asyncio.wait_for(
+            agent.arun(input=input_content),
+            timeout=90.0,
+        )
         result = response.content
         if isinstance(result, ScheduleImportResult):
-            return result.model_dump()
-        return result if isinstance(result, dict) else {"servers": [], "schedules": [], "suggestions": []}
+            parsed = result.model_dump()
+        elif isinstance(result, dict):
+            parsed = result
+        else:
+            parsed = {"servers": [], "schedules": [], "suggestions": []}
+
+        # If AI returned empty results, try local parse as fallback
+        if not _has_meaningful_data(parsed) and text:
+            logger.info("Schedule import AI returned empty, trying local parse")
+            local = _try_local_parse_schedule_import(text)
+            if local:
+                return local
+
+        return parsed
     except Exception as e:
-        logger.warning("Schedule import via Agent failed: %s", e)
+        logger.warning("Schedule import via Agent failed: %s, trying local parse", e)
+        if text:
+            local = _try_local_parse_schedule_import(text)
+            if local:
+                return local
         return {"servers": [], "schedules": [], "suggestions": []}
+
+
+def _has_meaningful_data(parsed: dict) -> bool:
+    """Check if the parsed schedule import has actual content (not just empty objects)."""
+    servers = parsed.get("servers", [])
+    schedules = parsed.get("schedules", [])
+    # Check if servers have name or channels
+    for s in servers:
+        if isinstance(s, dict) and (s.get("name") or s.get("channels")):
+            return True
+    # Check if schedules have a title
+    for s in schedules:
+        if isinstance(s, dict) and s.get("title"):
+            return True
+    # Check suggestions
+    suggestions = parsed.get("suggestions", [])
+    for s in suggestions:
+        if isinstance(s, dict) and (s.get("message") or s.get("type")):
+            return True
+    return False
+
+
+def _try_local_parse_schedule_import(text: str) -> dict | None:
+    """Try local regex-based parsing of course schedule text into servers/channels/schedules.
+    
+    Handles format like:
+    CourseName DayOfWeek StartTime-EndTime
+    Chapter1
+    Chapter2
+    """
+    import re
+    from datetime import datetime, date, timedelta
+    
+    lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
+    if len(lines) < 2:
+        return None
+    
+    day_map = {
+        "周一": 0, "星期二": 1, "周三": 2, "周四": 3, "周五": 4, "周六": 5, "周日": 6,
+        "星期一": 0, "星期二": 1, "星期三": 2, "星期四": 3, "星期五": 4, "星期六": 5, "星期日": 6,
+        "Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6,
+    }
+    
+    servers = []
+    schedules = []
+    current_server = None
+    current_channels = []
+    today = date.today()
+    
+    course_pattern = re.compile(
+        r"^(.+?)\s*(周[一二三四五六日]|星期[一二三四五六日]|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*(\d{1,2}:\d{2})\s*[-–—至到]\s*(\d{1,2}:\d{2})"
+    )
+    chapter_pattern = re.compile(r"^(第[一二三四五六七八九十\d]+[章节]|Unit\s*\d+|Chapter\s*\d+|[一二三四五六七八九十]、)\s*(.*)")
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        course_match = course_pattern.match(line)
+        if course_match:
+            # Finish previous server if any
+            if current_server and current_channels:
+                current_server["channels"] = current_channels
+                servers.append(current_server)
+                current_channels = []
+            
+            course_name = course_match.group(1).strip()
+            day_str = course_match.group(2).strip()
+            start_time = course_match.group(3)
+            end_time = course_match.group(4)
+            day_of_week = None
+            for k, v in day_map.items():
+                if k in day_str:
+                    day_of_week = v
+                    break
+            
+            current_server = {"name": course_name, "channels": []}
+            schedules.append({
+                "title": course_name,
+                "description": None,
+                "start_time": start_time,
+                "end_time": end_time,
+                "day_of_week": day_of_week,
+                "repeat_rule": {"type": "weekly"},
+                "is_all_day": False,
+                "confidence": 0.85,
+            })
+        elif chapter_pattern.match(line) and current_server:
+            ch_match = chapter_pattern.match(line)
+            ch_name = ch_match.group(2) if ch_match.group(2) else line
+            current_channels.append({
+                "name": ch_name[:100],
+                "notes": [{"content": f"{current_server['name']} - {ch_name}"}]
+            })
+        
+        i += 1
+    
+    # Add last server
+    if current_server and current_channels:
+        current_server["channels"] = current_channels
+        servers.append(current_server)
+    
+    if not servers and not schedules:
+        return None
+    
+    return {
+        "servers": servers,
+        "schedules": schedules,
+        "suggestions": [
+            {"type": "study_tip", "target_server": None, "message": "请检查解析结果，手动调整不准确的内容。"}
+        ],
+    }
 
 
 def _try_local_parse(text: str) -> dict | None:
