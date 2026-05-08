@@ -230,6 +230,7 @@ class ConsoleSessionCreate(BaseModel):
 
 class ConsoleSessionUpdate(BaseModel):
     title: str | None = None
+    loaded_context: str | None = None
 
 
 class ConsoleSessionResponse(BaseModel):
@@ -237,6 +238,7 @@ class ConsoleSessionResponse(BaseModel):
     user_id: int
     server_id: int | None
     title: str
+    loaded_context: str | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
     messages: list[ConsoleMessageResponse] | None = None

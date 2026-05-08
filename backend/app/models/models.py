@@ -166,6 +166,7 @@ class ConsoleSession(Base):
     title: Mapped[str] = mapped_column(String, nullable=False, default="New Session")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    loaded_context: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
     user: Mapped["User"] = relationship()
     messages: Mapped[list["ConsoleMessage"]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="ConsoleMessage.created_at")

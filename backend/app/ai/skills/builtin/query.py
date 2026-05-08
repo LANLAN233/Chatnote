@@ -65,6 +65,17 @@ class QuerySkill(BaseSkill):
             limit=FETCH_LIMIT,
         )
 
+        # Merge loaded notes from session context (deduplicate by content)
+        if context.loaded_notes:
+            seen = set(raw_notes)
+            for note in context.loaded_notes:
+                if note not in seen:
+                    raw_notes.append(note)
+                    seen.add(note)
+            # Limit total notes to FETCH_LIMIT * 2 to avoid prompt overflow
+            if len(raw_notes) > FETCH_LIMIT * 2:
+                raw_notes = raw_notes[:FETCH_LIMIT * 2]
+
         if not raw_notes:
             scope = f"#{channel_name}" if channel_name else f"@{server_name}"
             return SkillResult(

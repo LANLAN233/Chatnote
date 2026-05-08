@@ -1,5 +1,6 @@
 """Console router — handles console input, command routing, skill dispatch, and session management."""
 
+import json
 import logging
 import re
 
@@ -28,6 +29,7 @@ from app.schemas.schemas import (
     NoteCreateWithClassify,
     NoteResponse,
 )
+from app.services.note_service import fetch_notes_for_context
 from app.services.parser import parse_input
 
 logger = logging.getLogger(__name__)
@@ -43,6 +45,7 @@ def _session_to_dict(session: ConsoleSession, include_messages: bool = False) ->
         "title": session.title,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
+        "loaded_context": session.loaded_context,
     }
     if include_messages:
         data["messages"] = [
@@ -222,6 +225,7 @@ async def _route_query_skill(
     db: AsyncSession,
     known_server_id: int | None = None,
     known_server_name: str | None = None,
+    loaded_notes: list[str] | None = None,
 ) -> dict | None:
     """Route @Server #Channel question patterns to the $query skill.
 
@@ -272,7 +276,107 @@ async def _route_query_skill(
             "channel_id": channel_id,
             "channel_name": channel_name,
         },
+        loaded_notes=loaded_notes,
     )
+
+
+async def _load_context(
+    parsed,
+    user_id: int,
+    db: AsyncSession,
+    session: ConsoleSession,
+    known_server_id: int | None = None,
+    known_server_name: str | None = None,
+) -> dict:
+    """Load channel notes as persistent session context from @Server #Channel pattern.
+
+    Resolves server/channel names to IDs, fetches recent notes via
+    fetch_notes_for_context(), and saves the context to the session's
+    loaded_context field.
+
+    Args:
+        parsed: ParsedInput with server_name, channel_name, raw_input
+        user_id: Authenticated user ID
+        db: Async database session
+        session: Current ConsoleSession to attach context to
+        known_server_id: Pre-resolved server ID (for server-scoped console)
+        known_server_name: Pre-resolved server name (for server-scoped console)
+
+    Returns:
+        dict with type "context_loaded" on success, or "error" with message on failure
+    """
+    server_id = known_server_id
+    server_name = known_server_name
+    channel_id = None
+    channel_name = None
+
+    # Resolve server name if not already known
+    if not server_id and parsed.server_name:
+        result = await db.execute(
+            select(Server).where(Server.user_id == user_id, Server.name == parsed.server_name)
+        )
+        srv = result.scalar_one_or_none()
+        if not srv:
+            return {
+                "type": "error",
+                "content": f"服务器 '{parsed.server_name}' 不存在",
+                "data": {},
+            }
+        server_id = srv.id
+        server_name = srv.name
+
+    if not server_id:
+        return {
+            "type": "error",
+            "content": "无法确定目标服务器 — 请使用 @服务器名 #频道名 指定上下文",
+            "data": {},
+        }
+
+    # Resolve channel name if present
+    if parsed.channel_name:
+        result = await db.execute(
+            select(Channel).where(Channel.server_id == server_id, Channel.name == parsed.channel_name)
+        )
+        ch = result.scalar_one_or_none()
+        if ch:
+            channel_id = ch.id
+            channel_name = ch.name
+
+    # Fetch notes for context
+    notes = await fetch_notes_for_context(db, user_id, server_id, channel_id, limit=20)
+
+    # Save context to session as JSON
+    context_data = json.dumps({
+        "server_name": server_name,
+        "channel_name": channel_name,
+        "server_id": server_id,
+        "channel_id": channel_id,
+        "notes_count": len(notes),
+        "notes": notes,
+    }, ensure_ascii=False)
+    session.loaded_context = context_data
+    await db.flush()
+
+    # Build display labels
+    server_label = f"@{server_name}"
+    channel_label = f" #{channel_name}" if channel_name else ""
+
+    # Save assistant response
+    assistant_content = f"已加载 {server_label}{channel_label} 的 {len(notes)} 条笔记作为上下文"
+    await _save_message(session.id, "assistant", assistant_content, "context_loaded", db)
+
+    return {
+        "type": "context_loaded",
+        "content": assistant_content,
+        "data": {
+            "server_name": server_name,
+            "channel_name": channel_name,
+            "server_id": server_id,
+            "channel_id": channel_id,
+            "notes_count": len(notes),
+            "loaded_context_summary": notes[:3],
+        },
+    }
 
 
 async def _clear_session_messages(session_id: int, db: AsyncSession) -> None:
@@ -291,6 +395,7 @@ async def _dispatch_skill(
     user_id: int,
     db: AsyncSession,
     server_context: dict | None = None,
+    loaded_notes: list[str] | None = None,
 ) -> dict:
     model = await get_model_for_user(user_id, db)
     if model is None:
@@ -301,6 +406,7 @@ async def _dispatch_skill(
         db=db,
         model=model,
         server_context=server_context,
+        loaded_notes=loaded_notes,
     )
     try:
         result = await skill_registry.dispatch(skill_name, skill_args, context)
@@ -400,6 +506,15 @@ async def console_execute(
 
     parsed = parse_input(req.input)
 
+    # Extract loaded notes from session context (set by @Server #Channel without question)
+    loaded_notes: list[str] | None = None
+    if session.loaded_context:
+        try:
+            ctx = json.loads(session.loaded_context)
+            loaded_notes = ctx.get("notes", []) or None
+        except (json.JSONDecodeError, TypeError):
+            loaded_notes = None
+
     # Skill invocation
     if parsed.is_skill and parsed.skill_name:
         if not req.ai_enabled:
@@ -415,7 +530,7 @@ async def console_execute(
                 data={"type": "error", "content": msg.content, "session_id": session.id},
                 message="AI is disabled",
             )
-        result = await _dispatch_skill(parsed.skill_name, parsed.skill_args, current_user.id, db)
+        result = await _dispatch_skill(parsed.skill_name, parsed.skill_args, current_user.id, db, loaded_notes=loaded_notes)
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
         return ApiResponse(success=True, data={**result, "session_id": session.id})
 
@@ -430,10 +545,11 @@ async def console_execute(
         return ApiResponse(success=True, data={**result, "session_id": session.id})
 
     # --- $query Skill Routing (@Server #Channel question) ---
+    _has_question = parsed.content.strip() and parsed.content.strip() != parsed.raw_input.strip()
     if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
-        if (parsed.server_name or parsed.channel_name) and parsed.content.strip():
+        if (parsed.server_name or parsed.channel_name) and _has_question:
             query_result = await _route_query_skill(
-                parsed, current_user.id, db
+                parsed, current_user.id, db, loaded_notes=loaded_notes,
             )
             if query_result is not None:
                 await _save_message(
@@ -445,6 +561,24 @@ async def console_execute(
                 return ApiResponse(
                     success=True,
                     data={**query_result, "session_id": session.id, "routed_skill": "query"},
+                )
+
+    # --- Context Loading: @Server #Channel without question ---
+    if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
+        if (parsed.server_name or parsed.channel_name) and not _has_question:
+            context_result = await _load_context(parsed, current_user.id, db, session)
+            if context_result["type"] == "context_loaded":
+                return ApiResponse(
+                    success=True,
+                    data={**context_result["data"], "session_id": session.id, "type": "context_loaded", "content": context_result["content"]},
+                )
+            else:
+                # Server not found error
+                await _save_message(session.id, "assistant", context_result["content"], "error", db)
+                return ApiResponse(
+                    success=False,
+                    data={"type": "error", "content": context_result["content"], "session_id": session.id},
+                    message=context_result["content"],
                 )
 
     # --- AI Intent Routing (natural language → skill auto-match) ---
@@ -461,6 +595,7 @@ async def console_execute(
                     intent_result.args or req.input,
                     current_user.id,
                     db,
+                    loaded_notes=loaded_notes,
                 )
                 await _save_message(
                     session.id, "assistant",
@@ -532,6 +667,15 @@ async def server_console_execute(
 
     parsed = parse_input(req.input)
 
+    # Extract loaded notes from session context (set by @Server #Channel without question)
+    loaded_notes: list[str] | None = None
+    if session.loaded_context:
+        try:
+            ctx = json.loads(session.loaded_context)
+            loaded_notes = ctx.get("notes", []) or None
+        except (json.JSONDecodeError, TypeError):
+            loaded_notes = None
+
     if parsed.is_skill and parsed.skill_name:
         if not req.ai_enabled:
             msg = await _save_message(
@@ -548,7 +692,8 @@ async def server_console_execute(
             )
         result = await _dispatch_skill(
             parsed.skill_name, parsed.skill_args, current_user.id, db,
-            server_context={"server_id": server_id, "server_name": server.name}
+            server_context={"server_id": server_id, "server_name": server.name},
+            loaded_notes=loaded_notes,
         )
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
         return ApiResponse(success=True, data={**result, "session_id": session.id})
@@ -567,8 +712,9 @@ async def server_console_execute(
         return ApiResponse(success=True, data={**result, "session_id": session.id})
 
     # --- $query Skill Routing (#Channel question in server context) ---
+    _has_question = parsed.content.strip() and parsed.content.strip() != parsed.raw_input.strip()
     if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
-        if parsed.content.strip():
+        if parsed.content.strip() and (not parsed.channel_name or _has_question):
             query_channel_id = None
             query_channel_name = None
             if parsed.channel_name:
@@ -594,6 +740,7 @@ async def server_console_execute(
                     "channel_id": query_channel_id,
                     "channel_name": query_channel_name,
                 },
+                loaded_notes=loaded_notes,
             )
             await _save_message(
                 session.id, "assistant",
@@ -605,6 +752,26 @@ async def server_console_execute(
                 success=True,
                 data={**query_result, "session_id": session.id, "routed_skill": "query"},
             )
+
+    # --- Context Loading: #Channel without question (server-scoped) ---
+    if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
+        if parsed.channel_name and not _has_question:
+            context_result = await _load_context(
+                parsed, current_user.id, db, session,
+                known_server_id=server_id, known_server_name=server.name,
+            )
+            if context_result["type"] == "context_loaded":
+                return ApiResponse(
+                    success=True,
+                    data={**context_result["data"], "session_id": session.id, "type": "context_loaded", "content": context_result["content"]},
+                )
+            else:
+                await _save_message(session.id, "assistant", context_result["content"], "error", db)
+                return ApiResponse(
+                    success=False,
+                    data={"type": "error", "content": context_result["content"], "session_id": session.id},
+                    message=context_result["content"],
+                )
 
     # --- AI Intent Routing (natural language → skill auto-match) ---
     if req.ai_enabled:
@@ -620,6 +787,7 @@ async def server_console_execute(
                     current_user.id,
                     db,
                     server_context={"server_id": server_id, "server_name": server.name},
+                    loaded_notes=loaded_notes,
                 )
                 await _save_message(
                     session.id, "assistant",

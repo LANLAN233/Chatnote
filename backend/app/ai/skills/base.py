@@ -12,6 +12,7 @@ class SkillContext:
     model: OpenAIChat
     server_context: dict[str, Any] | None = None
     file_refs: list[str] = field(default_factory=list)
+    loaded_notes: list[str] | None = None
 
 
 @dataclass

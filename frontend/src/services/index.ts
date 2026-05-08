@@ -118,7 +118,7 @@ export const consoleSessionApi = {
   create: (data: { title?: string; server_id?: number }) =>
     api.post<ApiResponse<ConsoleSession>>("/console/sessions", data),
   get: (id: number) => api.get<ApiResponse<ConsoleSession>>(`/console/sessions/${id}`),
-  update: (id: number, data: { title?: string }) =>
+  update: (id: number, data: { title?: string; loaded_context?: string | null }) =>
     api.put<ApiResponse<ConsoleSession>>(`/console/sessions/${id}`, data),
   delete: (id: number) => api.delete<ApiResponse<null>>(`/console/sessions/${id}`),
   archive: (id: number, data: { server_id: number; channel_id: number }) =>

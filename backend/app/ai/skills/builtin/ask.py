@@ -49,14 +49,24 @@ class AskSkill(BaseSkill):
         if not args.strip():
             return SkillResult(type="output", content="$ask: Please provide a question.")
 
+        # If loaded context exists, prepend it to the question
+        if context.loaded_notes:
+            context_block = "以下是用户已加载的参考笔记，请结合这些笔记回答用户的问题：\n\n"
+            for i, note in enumerate(context.loaded_notes, 1):
+                context_block += f"{i}. {note}\n"
+            context_block += f"\n---\n\n用户问题: {args}\n\n请基于上述笔记内容回答问题。如果笔记内容不足以回答问题，可以结合你的知识进行补充，但请优先基于笔记内容回答。"
+            enhanced_args = context_block
+        else:
+            enhanced_args = args
+
         # ── Try with tools first ───────────────────────────────────────
-        result = await self._run_with_tools(args, context)
+        result = await self._run_with_tools(enhanced_args, context)
         if result is not None:
             return result
 
         # ── Fallback: plain agent without tools ───────────────────────
         logger.info("$ask: tool-calling failed, falling back to plain agent")
-        return await self._run_plain(args, context)
+        return await self._run_plain(enhanced_args, context)
 
     async def _run_with_tools(self, args: str, context: SkillContext) -> SkillResult | None:
         """Try running with full tool set. Returns None if fallback needed."""

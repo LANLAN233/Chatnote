@@ -308,9 +308,19 @@ export interface ConsoleSession {
   user_id: number;
   server_id: number | null;
   title: string;
+  loaded_context?: string | null;
   created_at: string;
   updated_at: string;
   messages?: ConsoleMessage[];
+}
+
+export interface LoadedContext {
+  server_name: string;
+  channel_name: string | null;
+  server_id: number;
+  channel_id: number | null;
+  notes_count: number;
+  notes?: string[];
 }
 
 export interface RepeatRule {
