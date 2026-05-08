@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Channel, Server } from "../../types";
-import { consoleApi } from "../../services";
+import { consoleApi, aiApi } from "../../services";
 
 interface ConsoleImportModalProps {
   content: string;
   servers: Server[];
   channels: Channel[];
   onClose: () => void;
+  onServerSelect?: (serverId: number) => Promise<void>;
 }
 
 function parseTargetText(value: string, servers: Server[], channels: Channel[]) {
@@ -27,12 +28,15 @@ function parseTargetText(value: string, servers: Server[], channels: Channel[]) 
   };
 }
 
-export default function ConsoleImportModal({ content, servers, channels, onClose }: ConsoleImportModalProps) {
+export default function ConsoleImportModal({ content, servers, channels, onClose, onServerSelect }: ConsoleImportModalProps) {
   const [editableContent, setEditableContent] = useState(content);
   const [selectedServerId, setSelectedServerId] = useState<number | null>(servers[0]?.id ?? null);
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
   const [targetText, setTargetText] = useState("");
   const [status, setStatus] = useState("");
+  const [classifyLoading, setClassifyLoading] = useState(false);
+  const [classifyError, setClassifyError] = useState("");
+  const [classifySuccess, setClassifySuccess] = useState(false);
 
   const visibleChannels = useMemo(
     () => channels.filter((channel) => (selectedServerId ? channel.server_id === selectedServerId : true)),
@@ -43,6 +47,9 @@ export default function ConsoleImportModal({ content, servers, channels, onClose
     const nextServerId = value ? Number(value) : null;
     setSelectedServerId(nextServerId);
     setSelectedChannelId(null);
+    if (nextServerId !== null) {
+      onServerSelect?.(nextServerId);
+    }
   };
 
   const handleTargetChange = (value: string) => {
@@ -50,6 +57,49 @@ export default function ConsoleImportModal({ content, servers, channels, onClose
     const parsed = parseTargetText(value, servers, channels);
     if (parsed.serverId) setSelectedServerId(parsed.serverId);
     if (parsed.channelId) setSelectedChannelId(parsed.channelId);
+  };
+
+  const handleClassify = async () => {
+    if (!editableContent.trim() || classifyLoading) return;
+    setClassifyLoading(true);
+    setClassifyError("");
+    setClassifySuccess(false);
+    try {
+      const { data } = await aiApi.classify(editableContent);
+      if (data.success && data.data) {
+        const result = data.data;
+        // Match suggested server name to available servers
+        const matchedServer = servers.find(
+          (s) => s.name === result.suggested_server
+        );
+        // Match suggested channel name to available channels
+        const matchedChannel = channels.find(
+          (c) => c.name === result.suggested_channel
+        );
+        if (matchedServer) {
+          setSelectedServerId(matchedServer.id);
+          // Trigger channel fetch for this server
+          if (onServerSelect) {
+            await onServerSelect(matchedServer.id);
+          }
+        }
+        if (matchedChannel) {
+          setSelectedChannelId(matchedChannel.id);
+        }
+        if (!matchedServer && !matchedChannel) {
+          setClassifyError(`未找到匹配: ${result.suggested_server || ''}${result.suggested_channel ? ' / ' + result.suggested_channel : ''}`);
+        } else {
+          setClassifySuccess(true);
+          setTimeout(() => setClassifySuccess(false), 3000);
+        }
+      } else {
+        setClassifyError("解析失败，请手动选择");
+      }
+    } catch {
+      setClassifyError("解析失败，请检查AI配置");
+    } finally {
+      setClassifyLoading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -87,6 +137,38 @@ export default function ConsoleImportModal({ content, servers, channels, onClose
             className="w-full rounded-lg border border-[#3f4147] bg-[#111214] p-3 text-sm outline-none"
           />
         </label>
+
+        {/* AI Parse Button Row */}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleClassify}
+            disabled={!editableContent.trim() || classifyLoading}
+            className="flex items-center gap-2 rounded-lg bg-[#5865f2] hover:bg-[#4752c4] disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2 text-sm font-medium text-white transition-colors"
+          >
+            {classifyLoading ? (
+              <>
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>解析中...</span>
+              </>
+            ) : (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                  <path d="M2 17l10 5 10-5"/>
+                  <path d="M2 12l10 5 10-5"/>
+                </svg>
+                <span>解析</span>
+              </>
+            )}
+          </button>
+          {classifySuccess && (
+            <span className="text-sm text-green-400">已自动填充</span>
+          )}
+          {classifyError && (
+            <span className="text-sm text-red-400">{classifyError}</span>
+          )}
+        </div>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block space-y-1">

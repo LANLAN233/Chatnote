@@ -1,25 +1,53 @@
-import { useState, useCallback } from "react";
-import { consoleApi } from "../../services";
-import { useServerStore, useChannelStore } from "../../stores";
+import { useState, useCallback, useEffect } from "react";
+import { consoleApi, channelApi } from "../../services";
+import { useServerStore } from "../../stores";
 import ConsoleCore from "../common/ConsoleCore";
+import type { Channel } from "../../types";
 
 const SKILL_LIST = ["summarize", "translate", "explain", "ask", "todo", "schedule", "math"];
 const COMMAND_LIST = ["help", "clear", "search", "todo", "today", "stats", "plugins", "calc"];
 
 function useConsoleSuggestions() {
   const servers = useServerStore((s) => s.servers);
-  const channels = useChannelStore((s) => s.channels);
+  const [allChannels, setAllChannels] = useState<Channel[]>([]);
 
-  return useCallback((filter: string, type: string): string[] => {
+  // Batch fetch all channels for all servers on mount
+  useEffect(() => {
+    if (servers.length === 0) return;
+    Promise.all(
+      servers.map((s) =>
+        channelApi.list(s.id).then(({ data }) => (data.success && data.data ? (data.data as Channel[]) : []))
+      )
+    ).then((results) => {
+      setAllChannels(results.flat());
+    }).catch(() => {
+      // silent fail — allChannels stays empty
+    });
+  }, [servers]);
+
+  return useCallback((filter: string, type: string, text: string): string[] => {
     const f = filter.toLowerCase();
     let items: string[] = [];
     switch (type) {
       case "server":
         items = servers.filter((s) => s.name.toLowerCase().includes(f)).map((s) => s.name);
         break;
-      case "channel":
+      case "channel": {
+        // Check for @ServerName context in full text
+        const serverMatch = text.match(/@([^\s#]+)(?=\s+#|$)/);
+        const targetServerName = serverMatch ? serverMatch[1] : null;
+        const targetServer = targetServerName
+          ? servers.find((s) => s.name.toLowerCase() === targetServerName.toLowerCase())
+          : null;
+        let channels: Channel[];
+        if (targetServer) {
+          channels = allChannels.filter((c) => c.server_id === targetServer.id);
+        } else {
+          channels = allChannels;
+        }
         items = channels.filter((c) => c.name.toLowerCase().includes(f)).map((c) => c.name);
         break;
+      }
       case "skill":
         items = SKILL_LIST.filter((s) => s.includes(f));
         break;
@@ -32,15 +60,8 @@ function useConsoleSuggestions() {
       default:
         items = [];
     }
-    // Sort: startsWith matches first, then includes matches
-    return items.sort((a, b) => {
-      const aStarts = a.toLowerCase().startsWith(f);
-      const bStarts = b.toLowerCase().startsWith(f);
-      if (aStarts && !bStarts) return -1;
-      if (!aStarts && bStarts) return 1;
-      return a.localeCompare(b);
-    });
-  }, [servers, channels]);
+    return items;
+  }, [servers, allChannels]);
 }
 
 export default function HomeConsolePanel() {

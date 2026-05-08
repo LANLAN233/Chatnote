@@ -20,7 +20,7 @@ import {
   FileInput,
   ExternalLink,
 } from "lucide-react";
-import type { ConsoleMessage, ConsoleMessageMetadata, ConsoleSession, Server, Channel } from "../../types";
+import type { ConsoleMessage, ConsoleMessageMetadata, ConsoleSession, LoadedContext, Server, Channel } from "../../types";
 import { consoleSessionApi, serverApi, channelApi } from "../../services";
 import ConsoleImportModal from "../console/ConsoleImportModal";
 import QuerySourcesModal from "../console/QuerySourcesModal";
@@ -51,7 +51,7 @@ interface ConsoleCoreProps {
     note?: unknown;
     plugin_responses?: Array<{ plugin_name: string; message: string }>;
   }>;
-  getSuggestions?: (partial: string, type: string) => string[];
+  getSuggestions?: (filter: string, type: string, fullText: string) => string[] | Promise<string[]>;
   headerTitle?: string;
   footerLabel?: string;
   initMessages?: string[];
@@ -110,6 +110,9 @@ export default function ConsoleCore({
   const [hoveredMessageId, setHoveredMessageId] = useState<number | null>(null);
   const [importContent, setImportContent] = useState("");
 
+  // Loaded context state (from @Server #Channel context loading)
+  const [loadedContext, setLoadedContext] = useState<LoadedContext[]>([]);
+
   // Query sources modal state
   const [querySourcesMessage, setQuerySourcesMessage] = useState<ConsoleMessage | null>(null);
 
@@ -136,9 +139,17 @@ export default function ConsoleCore({
     await navigator.clipboard.writeText(text);
   };
 
-  const handleImportToChannel = (text: string) => {
+  const handleImportToChannel = async (text: string) => {
     setImportContent(text);
     setShowSelectionToolbar(false);
+    try {
+      const { data: res } = await serverApi.list();
+      if (res?.success && res.data) {
+        setArchiveServers(res.data);
+      }
+    } catch {
+      // silent fail
+    }
   };
 
   // Text selection handler
@@ -214,6 +225,25 @@ export default function ConsoleCore({
       const { data: res } = await consoleSessionApi.get(id);
       if (res?.success && res.data) {
         setMessages(res.data.messages || []);
+        // Restore loaded context from session
+        if (res.data.loaded_context) {
+          try {
+            const ctx = JSON.parse(res.data.loaded_context);
+            setLoadedContext([
+              {
+                server_name: ctx.server_name,
+                channel_name: ctx.channel_name,
+                server_id: ctx.server_id,
+                channel_id: ctx.channel_id,
+                notes_count: ctx.notes_count,
+              },
+            ]);
+          } catch {
+            setLoadedContext([]);
+          }
+        } else {
+          setLoadedContext([]);
+        }
       }
     } catch {
       setMessages([]);
@@ -248,6 +278,21 @@ export default function ConsoleCore({
       }
     } catch {
       // silent fail
+    }
+  };
+
+  const handleRemoveContext = async (index: number) => {
+    if (!currentSessionId) return;
+    const updatedContexts = loadedContext.filter((_, i) => i !== index);
+    setLoadedContext(updatedContexts);
+
+    // If all contexts removed, clear from backend
+    if (updatedContexts.length === 0) {
+      try {
+        await consoleSessionApi.update(currentSessionId, { loaded_context: null });
+      } catch {
+        // silent fail
+      }
     }
   };
 
@@ -319,6 +364,18 @@ export default function ConsoleCore({
     }
   };
 
+  const handleImportServerSelect = async (serverId: number) => {
+    setArchiveChannels([]);
+    try {
+      const { data: res } = await channelApi.list(serverId);
+      if (res?.success && res.data) {
+        setArchiveChannels(res.data);
+      }
+    } catch {
+      // silent fail
+    }
+  };
+
   const detectSuggestion = useCallback((text: string, cursorPos: number) => {
     const beforeCursor = text.slice(0, cursorPos);
     const patterns = [
@@ -339,23 +396,29 @@ export default function ConsoleCore({
   }, []);
 
   const handleInputChange = useCallback(
-    (value: string) => {
+    (value: string, cursorPos?: number) => {
       setInput(value);
       if (!getSuggestions) return;
 
-      const cursorPos = inputRef.current?.selectionStart ?? value.length;
-      const detected = detectSuggestion(value, cursorPos);
+      const pos = cursorPos ?? inputRef.current?.selectionStart ?? value.length;
+      const detected = detectSuggestion(value, pos);
 
       if (detected) {
-        const items = getSuggestions(detected.filter, detected.type);
-        if (items.length > 0) {
-          setSuggestions(items);
-          setSelectedSuggestion(0);
-          setShowSuggestions(true);
-          setSuggestionType(detected.type);
-          setSuggestionFilter(detected.filter);
-          return;
-        }
+        const resultOrPromise = getSuggestions(detected.filter, detected.type, value);
+        Promise.resolve(resultOrPromise).then((items) => {
+          if (items.length > 0) {
+            setSuggestions(items);
+            setSelectedSuggestion(0);
+            setShowSuggestions(true);
+            setSuggestionType(detected.type);
+            setSuggestionFilter(detected.filter);
+          } else {
+            setShowSuggestions(false);
+            setSuggestions([]);
+            setSelectedSuggestion(-1);
+          }
+        });
+        return;
       }
       setShowSuggestions(false);
       setSuggestions([]);
@@ -465,10 +528,13 @@ export default function ConsoleCore({
 
     try {
       let executeText = text;
+      const isServerMention =
+        text.trim().startsWith("@") && !text.trim().startsWith("@file:");
       if (
         aiEnabled &&
         !text.startsWith("/") &&
         !text.startsWith("$") &&
+        !isServerMention &&
         scope.type === "global"
       ) {
         executeText = `$ask ${text}`;
@@ -491,7 +557,24 @@ export default function ConsoleCore({
       const toolCalls = resultData?.tool_calls;
       const toolResults = resultData?.tool_results;
 
-      if (resultData?.sources && Array.isArray(resultData.sources) && resultData.sources.length > 0) {
+      // Handle context_loaded (from @Server #Channel context loading)
+      if (resultData?.type === "context_loaded") {
+        assistantContent = (resultData.content as string) || "";
+        assistantType = "context_loaded";
+        const ctx: LoadedContext = {
+          server_name: resultData.server_name as string,
+          channel_name: resultData.channel_name as string | null,
+          server_id: resultData.server_id as number,
+          channel_id: resultData.channel_id as number | null,
+          notes_count: resultData.notes_count as number,
+        };
+        setLoadedContext((prev) => {
+          const filtered = prev.filter(
+            (c) => !(c.server_id === ctx.server_id && c.channel_id === ctx.channel_id)
+          );
+          return [...filtered, ctx];
+        });
+      } else if (resultData?.sources && Array.isArray(resultData.sources) && resultData.sources.length > 0) {
         assistantContent = (resultData.answer as string) || result.content || "";
         assistantType = "query_answer";
         assistantMetadata = {
@@ -648,6 +731,34 @@ export default function ConsoleCore({
           )}
         </div>
       </header>
+
+      {loadedContext.length > 0 && (
+        <div className="bg-[#2b2d31] border-b border-[#1e1f22] px-4 py-2 flex items-center gap-2 flex-wrap animate-in fade-in slide-in-from-top-2 duration-200">
+          <span className="text-[11px] text-[#949ba4] font-medium uppercase tracking-wider mr-1">上下文:</span>
+          {loadedContext.map((ctx, i) => (
+            <div
+              key={`${ctx.server_id}-${ctx.channel_id}`}
+              className="flex items-center gap-1.5 bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/30 rounded-full px-3 py-1 text-xs group hover:border-purple-400/50 transition-all duration-150"
+            >
+              <span className="text-purple-300 font-medium">@{ctx.server_name}</span>
+              {ctx.channel_name && (
+                <>
+                  <span className="text-[#949ba4]">/</span>
+                  <span className="text-[#5865f2] font-medium">#{ctx.channel_name}</span>
+                </>
+              )}
+              <span className="text-[#949ba4] ml-1">({ctx.notes_count}条笔记)</span>
+              <button
+                onClick={() => handleRemoveContext(i)}
+                className="text-[#949ba4] hover:text-red-400 hover:bg-red-400/10 rounded-full p-0.5 transition-colors ml-0.5"
+                title="移除上下文"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Session Sidebar */}
@@ -819,6 +930,8 @@ export default function ConsoleCore({
                         ? "bg-[#23a559]/20 text-green-100 border border-[#23a559]/30"
                         : msg.role === "system"
                         ? "bg-[#5865f2]/10 text-blue-300 text-xs border border-[#5865f2]/20"
+                        : msg.type === "context_loaded"
+                        ? "bg-purple-500/10 text-purple-300 text-xs border border-purple-500/20"
                         : msg.type === "error"
                         ? "bg-red-500/10 text-red-300 border border-red-500/20"
                         : "bg-[#2b2d31] text-gray-200 border border-[#3f4147]"
@@ -842,6 +955,9 @@ export default function ConsoleCore({
                       )}
                       {msg.role === "system" && (
                         <span className="text-blue-400 font-bold">System</span>
+                      )}
+                      {msg.type === "context_loaded" && (
+                        <span className="text-purple-400 font-bold">📚 上下文加载</span>
                       )}
                       <span>{formatTime(msg.created_at)}</span>
                     </div>
@@ -1025,7 +1141,7 @@ export default function ConsoleCore({
                   <textarea
                     ref={inputRef}
                     value={input}
-                    onChange={(e) => handleInputChange(e.target.value)}
+                    onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
                     onKeyDown={handleKeyDown}
                     placeholder="Note or /command or $skill..."
                     className="w-full bg-transparent outline-none text-white text-[15px] p-4 resize-none h-28 placeholder-gray-600 leading-relaxed"
@@ -1176,6 +1292,7 @@ export default function ConsoleCore({
           servers={archiveServers}
           channels={archiveChannels}
           onClose={() => setImportContent("")}
+          onServerSelect={handleImportServerSelect}
         />
       )}
 

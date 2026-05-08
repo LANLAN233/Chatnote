@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import ConsoleImportModal from "./ConsoleImportModal";
-import { consoleApi } from "../../services";
+import { consoleApi, aiApi } from "../../services";
 
 vi.mock("../../services", () => ({
   consoleApi: {
     importToChannel: vi.fn().mockResolvedValue({ data: { success: true } }),
+  },
+  aiApi: {
+    classify: vi.fn(),
   },
 }));
 
@@ -77,6 +80,23 @@ describe("ConsoleImportModal", () => {
     expect(screen.getByLabelText("Channel")).toHaveValue("10");
   });
 
+  it("calls onServerSelect when server is changed", async () => {
+    const onServerSelect = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ConsoleImportModal
+        content="text"
+        servers={servers}
+        channels={channels}
+        onClose={() => {}}
+        onServerSelect={onServerSelect}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Server"), { target: { value: "2" } });
+
+    expect(onServerSelect).toHaveBeenCalledWith(2);
+  });
+
   it("saves editable content and closes after success", async () => {
     const onClose = vi.fn();
     render(
@@ -103,5 +123,49 @@ describe("ConsoleImportModal", () => {
       expect(onClose).toHaveBeenCalled();
       expect(document.body.textContent).toContain("已导入到频道");
     });
+  });
+
+  it("triggers AI classify and auto-fills server/channel", async () => {
+    const mockClassify = aiApi.classify as ReturnType<typeof vi.fn>;
+    mockClassify.mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          suggested_server: "高等数学",
+          suggested_channel: "积分",
+          confidence: 0.9,
+          tags: [],
+          summary: "",
+          is_new_server: false,
+          is_new_channel: false,
+        },
+      },
+    });
+
+    const onServerSelect = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ConsoleImportModal
+        content="微积分求导问题"
+        servers={servers}
+        channels={channels}
+        onClose={() => {}}
+        onServerSelect={onServerSelect}
+      />
+    );
+
+    // Verify parse button is rendered
+    const parseBtn = screen.getByRole("button", { name: /解析/ });
+    expect(parseBtn).toBeTruthy();
+
+    // Click the parse button
+    fireEvent.click(parseBtn);
+
+    await waitFor(() => {
+      expect(mockClassify).toHaveBeenCalledWith("微积分求导问题");
+      expect(onServerSelect).toHaveBeenCalledWith(1);
+    });
+
+    // Server dropdown should be auto-filled to 高等数学 (id=1)
+    expect(screen.getByLabelText("Server")).toHaveValue("1");
   });
 });
