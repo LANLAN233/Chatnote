@@ -1,18 +1,19 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   BookOpen, Clock, ArrowRight, Star, Hash, Zap,
   Flame, TrendingUp, Tag, Inbox, Loader2, Sparkles, RefreshCw,
   ChevronDown, ChevronUp, Check, X
 } from "lucide-react";
-import { statsApi, aiApi, scheduleApi, inboxApi, channelApi } from "../../services";
+import { statsApi, aiApi, scheduleApi, inboxApi, channelApi, wsService } from "../../services";
 import { useServerStore, useChannelStore } from "../../stores";
 import SearchModal from "../search/SearchModal";
 import HomeConsolePanel from "./HomeConsolePanel";
 import ScheduleImportPanel from "./ScheduleImportPanel";
 import HomeInboxPanel from "./HomeInboxPanel";
+import AiProgressPanel from "../console/AiProgressPanel";
 import SmartInput from "../common/SmartInput";
-import type { StatsData, SmartCreateResult, Schedule, Note, Channel, RecentNote, DailySummaryResponse } from "../../types";
+import type { StatsData, SmartCreateResult, Schedule, Note, Channel, RecentNote, DailySummaryResponse, AiProgressEvent } from "../../types";
 
 interface OutletContext {
   homeTab: "overview" | "console" | "import" | "inbox" | "recent";
@@ -153,6 +154,8 @@ function OverviewTab() {
   const [dailySummary, setDailySummary] = useState<DailySummaryResponse | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [showStages, setShowStages] = useState(false);
+  const [summaryProgress, setSummaryProgress] = useState<AiProgressEvent | null>(null);
+  const summaryUnsubRef = useRef<(() => void) | null>(null);
 
   const loadStats = useCallback(async () => {
     if (!localStorage.getItem("token")) return;
@@ -173,6 +176,16 @@ function OverviewTab() {
   const loadDailySummary = useCallback(async () => {
     if (!localStorage.getItem("token")) return;
     setSummaryLoading(true);
+    setSummaryProgress(null);
+
+    // Subscribe to live progress events for daily summary
+    const unsub = wsService.on("ai_progress", (event: AiProgressEvent) => {
+      if (event.operation_id?.startsWith("daily_summary")) {
+        setSummaryProgress(event);
+      }
+    });
+    summaryUnsubRef.current = unsub;
+
     try {
       const { data } = await statsApi.getDailySummary?.() ?? { data: null };
       if (data?.data) setDailySummary(data.data as DailySummaryResponse);
@@ -180,6 +193,9 @@ function OverviewTab() {
       // silent
     } finally {
       setSummaryLoading(false);
+      setSummaryProgress(null);
+      summaryUnsubRef.current?.();
+      summaryUnsubRef.current = null;
     }
   }, []);
 
@@ -188,6 +204,13 @@ function OverviewTab() {
     loadTodaySchedules();
     loadDailySummary();
   }, [loadStats, loadTodaySchedules, loadDailySummary]);
+
+  useEffect(() => {
+    return () => {
+      summaryUnsubRef.current?.();
+      summaryUnsubRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -552,9 +575,15 @@ function OverviewTab() {
                 </button>
               </div>
               {summaryLoading ? (
-                <div className="flex items-center justify-center py-4 text-[#949ba4]">
-                  <Loader2 size={16} className="animate-spin mr-2" /> 生成中...
-                </div>
+                summaryProgress ? (
+                  <div className="transition-opacity duration-300">
+                    <AiProgressPanel progress={summaryProgress} />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center py-4 text-[#949ba4] transition-opacity duration-300">
+                    <Loader2 size={16} className="animate-spin mr-2" /> 生成中...
+                  </div>
+                )
               ) : dailySummary ? (
                 <div className="space-y-3">
                   <p className="text-[#dbdee1] text-xs leading-relaxed">{dailySummary.summary}</p>

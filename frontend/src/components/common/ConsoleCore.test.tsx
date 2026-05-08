@@ -19,6 +19,9 @@ vi.mock("../../services", () => ({
   channelApi: {
     list: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }),
   },
+  wsService: {
+    on: vi.fn(() => vi.fn()),
+  },
 }));
 
 const mockExecuteFn = vi.fn().mockResolvedValue({ type: "text", content: "Test response" });
@@ -783,5 +786,186 @@ describe("context_loaded state update", () => {
     await waitFor(() => {
       expect(screen.queryByText(/上下文:/)).not.toBeInTheDocument();
     });
+  });
+});
+
+// T19: WebSocket title_updated handler
+describe("title_updated WebSocket handler", () => {
+  const mockSession = (id: number, title: string) => ({
+    id,
+    user_id: 1,
+    server_id: null,
+    title,
+    loaded_context: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("updates session title from 'New Session' to generated title after title_updated event", async () => {
+    const { consoleSessionApi, wsService } = await import("../../services");
+
+    // Capture the handler registered by ConsoleCore
+    let capturedHandler: ((data: unknown) => void) | null = null;
+    (wsService.on as ReturnType<typeof vi.fn>).mockImplementation(
+      (type: string, handler: unknown) => {
+        if (type === "title_updated") capturedHandler = handler as (data: unknown) => void;
+        return vi.fn();
+      }
+    );
+
+    // Mock list to return one session with "New Session"
+    vi.mocked(consoleSessionApi.list).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: [mockSession(1, "New Session")],
+      },
+    });
+
+    // Mock get to return session with no messages
+    vi.mocked(consoleSessionApi.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { ...mockSession(1, "New Session"), messages: [] },
+      },
+    });
+
+    render(
+      <ConsoleCore scope={{ type: "global" }} executeFn={mockExecuteFn} />
+    );
+
+    // Wait for initial load and session selection
+    await waitFor(() => {
+      expect(vi.mocked(consoleSessionApi.get)).toHaveBeenCalledWith(1);
+    });
+
+    // Verify "New Session" is visible — appears both in "New Session" button and session title
+    expect(screen.getAllByText("New Session").length).toBe(2);
+
+    // Fire the title_updated WebSocket event
+    await act(async () => {
+      capturedHandler!({ session_id: 1, title: "Generated Title" });
+    });
+
+    // Verify the title updated in the sidebar session span
+    await waitFor(() => {
+      expect(screen.getByText("Generated Title")).toBeInTheDocument();
+    });
+
+    // "New Session" button still exists (it's the create button, always there)
+    expect(screen.getByText("New Session")).toBeInTheDocument();
+  });
+
+  it("does not switch session when another session's title is updated", async () => {
+    const { consoleSessionApi, wsService } = await import("../../services");
+
+    let capturedHandler: ((data: unknown) => void) | null = null;
+    (wsService.on as ReturnType<typeof vi.fn>).mockImplementation(
+      (type: string, handler: unknown) => {
+        if (type === "title_updated") capturedHandler = handler as (data: unknown) => void;
+        return vi.fn();
+      }
+    );
+
+    // Mock list to return 2 sessions
+    vi.mocked(consoleSessionApi.list).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: [
+          mockSession(1, "Session One"),
+          mockSession(2, "Session Two"),
+        ],
+      },
+    });
+
+    // Mock get for session 1 (auto-selected first)
+    vi.mocked(consoleSessionApi.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { ...mockSession(1, "Session One"), messages: [{ id: 10, session_id: 1, role: "assistant" as const, content: "Hello from session 1", type: "text", created_at: new Date().toISOString() }] },
+      },
+    });
+
+    render(
+      <ConsoleCore scope={{ type: "global" }} executeFn={mockExecuteFn} />
+    );
+
+    // Wait for initial load — should select session 1
+    await waitFor(() => {
+      expect(vi.mocked(consoleSessionApi.get)).toHaveBeenCalledWith(1);
+    });
+
+    const getCallCountBefore = vi.mocked(consoleSessionApi.get).mock.calls.length;
+
+    // Fire title_updated for session 2 (the inactive session)
+    await act(async () => {
+      capturedHandler!({ session_id: 2, title: "Updated Session Two" });
+    });
+
+    // Verify title for session 2 updated in sidebar
+    await waitFor(() => {
+      expect(screen.getByText("Updated Session Two")).toBeInTheDocument();
+    });
+
+    // Verify no additional call to get (no session switch)
+    expect(vi.mocked(consoleSessionApi.get).mock.calls.length).toBe(getCallCountBefore);
+
+    // Verify session 1 is still there and still the active session
+    expect(screen.getByText("Session One")).toBeInTheDocument();
+    expect(screen.getByText("Hello from session 1")).toBeInTheDocument();
+  });
+
+  it("title update via WebSocket keeps current session and preserves input focus", async () => {
+    const { consoleSessionApi, wsService } = await import("../../services");
+
+    let capturedHandler: ((data: unknown) => void) | null = null;
+    (wsService.on as ReturnType<typeof vi.fn>).mockImplementation(
+      (type: string, handler: unknown) => {
+        if (type === "title_updated") capturedHandler = handler as (data: unknown) => void;
+        return vi.fn();
+      }
+    );
+
+    vi.mocked(consoleSessionApi.list).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: [mockSession(1, "New Session")],
+      },
+    });
+
+    vi.mocked(consoleSessionApi.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { ...mockSession(1, "New Session"), messages: [] },
+      },
+    });
+
+    render(
+      <ConsoleCore scope={{ type: "global" }} executeFn={mockExecuteFn} />
+    );
+
+    await waitFor(() => {
+      expect(vi.mocked(consoleSessionApi.get)).toHaveBeenCalledWith(1);
+    });
+
+    // Fire title_updated — title should update in sidebar
+    await act(async () => {
+      capturedHandler!({ session_id: 1, title: "Server Generated Title" });
+    });
+
+    // Verify title updated in sidebar session span
+    await waitFor(() => {
+      expect(screen.getByText("Server Generated Title")).toBeInTheDocument();
+    });
+
+    // Verify the input box is still present (no session switch, no focus lost)
+    const input = screen.getByPlaceholderText("Note or /command or $skill...");
+    expect(input).toBeInTheDocument();
+
+    // Verify no additional session load (get only called once for initial load)
+    expect(vi.mocked(consoleSessionApi.get)).toHaveBeenCalledTimes(1);
   });
 });

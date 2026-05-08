@@ -19,6 +19,9 @@ vi.mock("../../services", () => ({
   channelApi: {
     list: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }),
   },
+  wsService: {
+    on: vi.fn(() => vi.fn()),
+  },
 }));
 
 const mockQueryResult = {

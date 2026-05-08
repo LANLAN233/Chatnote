@@ -53,6 +53,9 @@ vi.mock("../../services", () => ({
   serverApi: {
     list: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }),
   },
+  wsService: {
+    on: vi.fn(() => vi.fn()),
+  },
 }));
 
 describe("ConsoleView useConsoleSuggestions", () => {
