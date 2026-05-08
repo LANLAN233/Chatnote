@@ -8,6 +8,7 @@ and natural language understanding when needed.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from agno.agent import Agent
@@ -26,6 +27,8 @@ from app.ai.tools import (
 )
 from app.models.models import Channel, Note, Server
 from app.plugins import plugin_manager
+from app.schemas.ai_progress import AiProgressStage
+from app.services.websocket import manager
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +309,7 @@ async def execute_agent_query(
     db: AsyncSession,
     user_id: int,
     model: Any,  # agno OpenAIChat | None
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute a natural-language query via the console AI agent.
 
@@ -324,7 +328,22 @@ async def execute_agent_query(
             "content": "No AI model configured. Add an API key in Settings to enable AI queries.",
         }
 
+    model_id = model.id if hasattr(model, "id") else "unknown"
+
     # ── Try with tools first ────────────────────────────────────────
+    t0 = time.time()
+    if operation_id is not None:
+        await manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,
+            stage_data=AiProgressStage(
+                stage="tool_call",
+                status="in_progress",
+                model=model_id,
+                tier="primary",
+                message="Executing tool: console agent with tools",
+            ),
+        )
     agent = create_console_ai_agent(db, user_id, model)
     if agent is not None:
         try:
@@ -335,10 +354,54 @@ async def execute_agent_query(
         else:
             content = response.content if hasattr(response, "content") else str(response)
             if not _is_tool_error(content):
+                if operation_id is not None:
+                    duration_ms = int((time.time() - t0) * 1000)
+                    await manager.broadcast_ai_progress(
+                        user_id=user_id,
+                        operation_id=operation_id,
+                        stage_data=AiProgressStage(
+                            stage="tool_call",
+                            status="completed",
+                            model=model_id,
+                            tier="primary",
+                            message="Tool call completed",
+                            duration_ms=duration_ms,
+                        ),
+                    )
                 return _build_agent_response(response)
+
+    # ── Tool call failed → emit failed event ─────────────────────────
+    if operation_id is not None:
+        duration_ms = int((time.time() - t0) * 1000)
+        await manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,
+            stage_data=AiProgressStage(
+                stage="tool_call",
+                status="failed",
+                model=model_id,
+                tier="primary",
+                message="Tool failed: tool-calling not supported by model",
+                metadata={"tool_name": "console_agent_with_tools", "error": "model_does_not_support_tools"},
+                duration_ms=duration_ms,
+            ),
+        )
 
     # ── Fallback: plain agent without tools ─────────────────────────
     logger.info("Console agent: tool-calling failed, falling back to plain agent")
+    t0_fb = time.time()
+    if operation_id is not None:
+        await manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,
+            stage_data=AiProgressStage(
+                stage="fallback",
+                status="in_progress",
+                model=model_id,
+                tier="fallback",
+                message="Falling back to plain LLM...",
+            ),
+        )
     try:
         plain_agent = Agent(
             model=model,
@@ -349,12 +412,41 @@ async def execute_agent_query(
         response = await plain_agent.arun(input=input_text)
     except Exception as exc:
         logger.exception("Console plain agent query failed")
+        if operation_id is not None:
+            fb_duration_ms = int((time.time() - t0_fb) * 1000)
+            await manager.broadcast_ai_progress(
+                user_id=user_id,
+                operation_id=operation_id,
+                stage_data=AiProgressStage(
+                    stage="fallback",
+                    status="failed",
+                    model=model_id,
+                    tier="fallback",
+                    message=f"Fallback failed: {exc}",
+                    metadata={"error": str(exc)},
+                    duration_ms=fb_duration_ms,
+                ),
+            )
         return {
             "type": "error",
             "content": f"AI query failed: {exc}",
         }
 
     content = response.content if hasattr(response, "content") else str(response)
+    if operation_id is not None:
+        fb_duration_ms = int((time.time() - t0_fb) * 1000)
+        await manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,
+            stage_data=AiProgressStage(
+                stage="fallback",
+                status="completed",
+                model=model_id,
+                tier="fallback",
+                message="Fallback response ready",
+                duration_ms=fb_duration_ms,
+            ),
+        )
     return {"type": "agent_response", "content": content, "data": {}}
 
 

@@ -1,4 +1,5 @@
 import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -8,6 +9,7 @@ from app.ai.classification import classify_note, resolve_classification
 from app.database import get_db
 from app.models.models import Channel, InboxItem, Note, Server, User
 from app.routers.auth import get_current_user
+from app.schemas.ai_progress import AiProgressStage
 from app.schemas.schemas import (
     ApiResponse,
     ClassifyRequest,
@@ -17,6 +19,7 @@ from app.schemas.schemas import (
     ScheduleImportRequest,
 )
 from app.services.parser import parse_input
+from app.services.websocket import manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["ai"])
@@ -337,11 +340,76 @@ async def import_schedule(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Parse course syllabus / schedule text (and optionally image) into structured suggestions."""
-    from app.ai.models import get_model_for_user
-    from app.ai.schedule import parse_schedule_import
+    """Parse course syllabus / schedule text (and optionally image) into structured suggestions.
 
-    model = await get_model_for_user(current_user.id, db, use_vision=bool(req.image_url))
+    When the user uploads an image but their default provider lacks real vision
+    capability (e.g., deepseek), the endpoint automatically switches to Kimi k2.5
+    (via Agno, or raw SDK as fallback).
+    """
+    from app.ai.models import get_model_for_user, has_real_vision, get_kimi_vision_model, get_kimi_vision_model_sdk, _infer_provider_from_model
+    from app.ai.schedule import _call_kimi_vision_sdk, parse_schedule_import
+
+    has_image = bool(req.image_url)
+    model = await get_model_for_user(current_user.id, db, use_vision=has_image)
+
+    # ── Auto-switch/fallback for image imports ─
+    if has_image:
+        provider = _infer_provider_from_model(model) or current_user.preferred_llm or "deepseek"
+
+        # Determine if we need Kimi fallback
+        need_kimi = (model is None) or (not has_real_vision(provider))
+
+        if need_kimi:
+            logger.info(
+                "Image import: model=%s provider=%s real_vision=%s → trying Kimi k2.5",
+                "None" if model is None else model.id,
+                provider,
+                has_real_vision(provider),
+            )
+            # Emit provider_switch progress event
+            op_id = f"import_schedule_{current_user.id}_{int(time.time())}"
+            await manager.broadcast_ai_progress(
+                user_id=current_user.id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="provider_switch",
+                    status="fallback",
+                    model="kimi",
+                    tier="fallback",
+                    message="Switching to Kimi for image import",
+                    metadata={"original_provider": provider, "reason": "no_real_vision" if model and not has_real_vision(provider) else "no_model_configured"},
+                ),
+            )
+            # Prefer raw SDK path — Kimi doesn't support Agno's structured_outputs (JSON schema)
+            kimi_client = get_kimi_vision_model_sdk()
+            if kimi_client:
+                logger.info("Using raw SDK path for Kimi k2.5 vision")
+                result = await _call_kimi_vision_sdk(req.text, req.image_url, kimi_client)
+                return ApiResponse(success=True, data=result)
+
+            # Raw SDK unavailable — fall back to Agno path
+            kimi_model = get_kimi_vision_model()
+            if kimi_model:
+                result = await parse_schedule_import(req.text, req.image_url, kimi_model)
+                return ApiResponse(success=True, data=result)
+
+            # No MOONSHOT_API_KEY configured
+            return ApiResponse(
+                success=False,
+                data={
+                    "servers": [],
+                    "schedules": [],
+                    "suggestions": [
+                        {
+                            "type": "error",
+                            "target_server": None,
+                            "message": "图片识别需要 Kimi 视觉模型支持。请在服务器 .env 配置 MOONSHOT_API_KEY，或使用支持视觉识别的模型（如 GPT-4o、智谱 GLM-4V、通义千问 VL）。",
+                        }
+                    ],
+                },
+                message="图片识别不可用",
+            )
+
     result = await parse_schedule_import(req.text, req.image_url, model)
     return ApiResponse(success=True, data=result)
 

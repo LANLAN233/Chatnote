@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any
 
 from agno.agent import Agent
@@ -182,6 +183,7 @@ async def classify_note_ensemble(
     content: str,
     db: AsyncSession,
     user_id: int,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     """Two-stage classification pipeline using fast/strong model tiers.
 
@@ -196,10 +198,19 @@ async def classify_note_ensemble(
 
     Falls back to single-model classify_note() when ANY agent fails
     (model=None or exception).
+
+    When *operation_id* is provided, emits WebSocket progress events
+    so the frontend can show real-time pipeline status.
     """
     from app.ai.models import get_model_by_tier
+    from app.schemas.ai_progress import AiProgressStage
+    from app.services.websocket import manager as ws_manager
+
+    _emit = operation_id is not None
 
     # --- Stage 1: Fast model ---
+    t_fast_start = time.time()
+
     try:
         fast_model = await get_model_by_tier(user_id, db, "fast")
     except Exception as exc:
@@ -210,6 +221,21 @@ async def classify_note_ensemble(
 
     if fast_model is None:
         return await classify_note(content, db, user_id)
+
+    fast_model_id = getattr(fast_model, "id", "unknown")
+
+    if _emit:
+        await ws_manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,  # type: ignore[arg-type]
+            stage_data=AiProgressStage(
+                stage="fast_classification",
+                status="in_progress",
+                model=fast_model_id,
+                tier="fast",
+                message="Classifying with fast model...",
+            ),
+        )
 
     try:
         fast_agent = create_classifier_agent(fast_model)
@@ -226,12 +252,57 @@ async def classify_note_ensemble(
         logger.warning(
             "Fast classification failed: %s, falling back to single-model", exc
         )
+        if _emit:
+            await ws_manager.broadcast_ai_progress(
+                user_id=user_id,
+                operation_id=operation_id,  # type: ignore[arg-type]
+                stage_data=AiProgressStage(
+                    stage="fast_classification",
+                    status="failed",
+                    model=fast_model_id,
+                    tier="fast",
+                    message=f"Fast classification failed: {exc}",
+                    duration_ms=int((time.time() - t_fast_start) * 1000),
+                ),
+            )
         return await classify_note(content, db, user_id)
 
+    fast_duration_ms = int((time.time() - t_fast_start) * 1000)
     fast_confidence = float(fast_dict.get("confidence", 0.0))
+
+    if _emit:
+        await ws_manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,  # type: ignore[arg-type]
+            stage_data=AiProgressStage(
+                stage="fast_classification",
+                status="completed",
+                model=fast_model_id,
+                tier="fast",
+                message="Fast classification complete",
+                metadata={
+                    "confidence": fast_confidence,
+                    "server": str(fast_dict.get("suggested_server", "")),
+                    "channel": str(fast_dict.get("suggested_channel", "")),
+                },
+                duration_ms=fast_duration_ms,
+            ),
+        )
 
     # High confidence → return immediately
     if fast_confidence >= 0.85:
+        if _emit:
+            await ws_manager.broadcast_ai_progress(
+                user_id=user_id,
+                operation_id=operation_id,  # type: ignore[arg-type]
+                stage_data=AiProgressStage(
+                    stage="classification_complete",
+                    status="completed",
+                    model=fast_model_id,
+                    tier="fast",
+                    message="Classification complete",
+                ),
+            )
         return {
             **fast_dict,
             "ai_reviewed": False,
@@ -241,6 +312,8 @@ async def classify_note_ensemble(
         }
 
     # --- Stage 2: Strong model ---
+    t_strong_start = time.time()
+
     try:
         strong_model = await get_model_by_tier(user_id, db, "strong")
     except Exception as exc:
@@ -264,6 +337,21 @@ async def classify_note_ensemble(
             "strong_confidence": None,
         }
 
+    strong_model_id = getattr(strong_model, "id", "unknown")
+
+    if _emit:
+        await ws_manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,  # type: ignore[arg-type]
+            stage_data=AiProgressStage(
+                stage="strong_review",
+                status="in_progress",
+                model=strong_model_id,
+                tier="strong",
+                message="Low confidence, reviewing with strong model...",
+            ),
+        )
+
     try:
         strong_agent = create_classifier_agent(strong_model)
         strong_response = await strong_agent.arun(
@@ -278,6 +366,19 @@ async def classify_note_ensemble(
         logger.warning(
             "Strong classification failed: %s, using fast result", exc
         )
+        if _emit:
+            await ws_manager.broadcast_ai_progress(
+                user_id=user_id,
+                operation_id=operation_id,  # type: ignore[arg-type]
+                stage_data=AiProgressStage(
+                    stage="strong_review",
+                    status="failed",
+                    model=strong_model_id,
+                    tier="strong",
+                    message=f"Strong review failed: {exc}",
+                    duration_ms=int((time.time() - t_strong_start) * 1000),
+                ),
+            )
         return {
             **fast_dict,
             "ai_reviewed": True,
@@ -286,6 +387,7 @@ async def classify_note_ensemble(
             "strong_confidence": None,
         }
 
+    strong_duration_ms = int((time.time() - t_strong_start) * 1000)
     strong_confidence = float(strong_dict.get("confidence", 0.0))
 
     # Compare fast vs strong
@@ -314,6 +416,37 @@ async def classify_note_ensemble(
             final["summary"] = (
                 f"{existing} [建议人工确认]" if existing else "建议人工确认"
             )
+
+    if _emit:
+        await ws_manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,  # type: ignore[arg-type]
+            stage_data=AiProgressStage(
+                stage="strong_review",
+                status="completed",
+                model=strong_model_id,
+                tier="strong",
+                message="Strong review complete",
+                metadata={
+                    "confidence": strong_confidence,
+                    "consistency": str(final.get("ensemble_consistency", "")),
+                },
+                duration_ms=strong_duration_ms,
+            ),
+        )
+
+    if _emit:
+        await ws_manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,  # type: ignore[arg-type]
+            stage_data=AiProgressStage(
+                stage="classification_complete",
+                status="completed",
+                model=strong_model_id,
+                tier="strong",
+                message="Classification complete",
+            ),
+        )
 
     return final
 

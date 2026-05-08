@@ -12,6 +12,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Note
+from app.schemas.ai_progress import AiProgressStage
+from app.services.websocket import manager
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +244,7 @@ async def generate_daily_summary_pipeline(
     user_id: int,
     db: AsyncSession,
     target_date: date | None = None,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     """Generate a daily learning summary using a three-stage model pipeline.
 
@@ -290,6 +293,19 @@ async def generate_daily_summary_pipeline(
     try:
         # ── Stage 1: Knowledge Extraction (fast model) ──
         t0 = time.time()
+        # WS: emit extraction in_progress
+        if operation_id is not None:
+            await manager.broadcast_ai_progress(
+                user_id=user_id,
+                operation_id=operation_id,
+                stage_data=AiProgressStage(
+                    stage="extraction",
+                    status="in_progress",
+                    model="fast",
+                    tier="fast",
+                    message="Extracting knowledge from notes...",
+                ),
+            )
         try:
             fast_model = await get_model_by_tier(user_id, db, "fast")
             if fast_model is None:
@@ -306,11 +322,26 @@ async def generate_daily_summary_pipeline(
             if not isinstance(raw1, ExtractedKnowledge):
                 raw1 = ExtractedKnowledge.model_validate(raw1)
             extracted = raw1
+            extraction_duration_ms = int((time.time() - t0) * 1000)
             stages.append({
                 "name": "extraction",
                 "status": "completed",
-                "duration_ms": int((time.time() - t0) * 1000),
+                "duration_ms": extraction_duration_ms,
             })
+            # WS: emit extraction completed
+            if operation_id is not None:
+                await manager.broadcast_ai_progress(
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    stage_data=AiProgressStage(
+                        stage="extraction",
+                        status="completed",
+                        model=fast_model.id,
+                        tier="fast",
+                        message="Knowledge extraction complete",
+                        duration_ms=extraction_duration_ms,
+                    ),
+                )
         except Exception as stage_err:
             logger.warning("Pipeline Stage 1 (extraction) failed: %s", stage_err)
             stages.append({
@@ -323,6 +354,19 @@ async def generate_daily_summary_pipeline(
 
         # ── Stage 2: Summary Generation (strong model) ──
         t1 = time.time()
+        # WS: emit summary in_progress
+        if operation_id is not None:
+            await manager.broadcast_ai_progress(
+                user_id=user_id,
+                operation_id=operation_id,
+                stage_data=AiProgressStage(
+                    stage="summary",
+                    status="in_progress",
+                    model="strong",
+                    tier="strong",
+                    message="Generating daily summary...",
+                ),
+            )
         try:
             strong_model = await get_model_by_tier(user_id, db, "strong")
             if strong_model is None:
@@ -344,11 +388,26 @@ async def generate_daily_summary_pipeline(
             if not isinstance(raw2, StructuredSummary):
                 raw2 = StructuredSummary.model_validate(raw2)
             summary_result = raw2
+            summary_duration_ms = int((time.time() - t1) * 1000)
             stages.append({
                 "name": "summary",
                 "status": "completed",
-                "duration_ms": int((time.time() - t1) * 1000),
+                "duration_ms": summary_duration_ms,
             })
+            # WS: emit summary completed
+            if operation_id is not None:
+                await manager.broadcast_ai_progress(
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    stage_data=AiProgressStage(
+                        stage="summary",
+                        status="completed",
+                        model=strong_model.id,
+                        tier="strong",
+                        message="Daily summary generated",
+                        duration_ms=summary_duration_ms,
+                    ),
+                )
         except Exception as stage_err:
             logger.warning("Pipeline Stage 2 (summary) failed: %s", stage_err)
             stages.append({
@@ -361,6 +420,19 @@ async def generate_daily_summary_pipeline(
 
         # ── Stage 3: Keyword Extraction (fast model) ──
         t2 = time.time()
+        # WS: emit keywords in_progress
+        if operation_id is not None:
+            await manager.broadcast_ai_progress(
+                user_id=user_id,
+                operation_id=operation_id,
+                stage_data=AiProgressStage(
+                    stage="keywords",
+                    status="in_progress",
+                    model="fast",
+                    tier="fast",
+                    message="Extracting keywords...",
+                ),
+            )
         try:
             fast_model2 = await get_model_by_tier(user_id, db, "fast")
             if fast_model2 is None:
@@ -383,11 +455,26 @@ async def generate_daily_summary_pipeline(
             if not isinstance(raw3, KeywordMapping):
                 raw3 = KeywordMapping.model_validate(raw3)
             keyword_mapping = raw3
+            keywords_duration_ms = int((time.time() - t2) * 1000)
             stages.append({
                 "name": "keywords",
                 "status": "completed",
-                "duration_ms": int((time.time() - t2) * 1000),
+                "duration_ms": keywords_duration_ms,
             })
+            # WS: emit keywords completed
+            if operation_id is not None:
+                await manager.broadcast_ai_progress(
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    stage_data=AiProgressStage(
+                        stage="keywords",
+                        status="completed",
+                        model=fast_model2.id,
+                        tier="fast",
+                        message="Keywords extracted",
+                        duration_ms=keywords_duration_ms,
+                    ),
+                )
         except Exception as stage_err:
             logger.warning("Pipeline Stage 3 (keywords) failed: %s", stage_err)
             stages.append({

@@ -11,6 +11,7 @@ it falls back to a plain-text agent without tools.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from agno.agent import Agent
@@ -20,6 +21,7 @@ from agno.tools.python import PythonTools
 
 from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
 from app.ai.tools import make_get_stats_tool, make_search_notes_tool
+from app.schemas.ai_progress import AiProgressStage
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +61,90 @@ class AskSkill(BaseSkill):
         else:
             enhanced_args = args
 
+        model_id = context.model.id if hasattr(context.model, "id") else "unknown"
+        ws = context.ws_manager
+        op_id = context.operation_id
+
         # ── Try with tools first ───────────────────────────────────────
+        t0 = time.time()
+        if ws and op_id:
+            await ws.broadcast_ai_progress(
+                user_id=context.user_id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="tool_call",
+                    status="in_progress",
+                    model=model_id,
+                    tier="primary",
+                    message="Executing tool: ask agent with tools",
+                ),
+            )
         result = await self._run_with_tools(enhanced_args, context)
         if result is not None:
+            if ws and op_id:
+                duration_ms = int((time.time() - t0) * 1000)
+                await ws.broadcast_ai_progress(
+                    user_id=context.user_id,
+                    operation_id=op_id,
+                    stage_data=AiProgressStage(
+                        stage="tool_call",
+                        status="completed",
+                        model=model_id,
+                        tier="primary",
+                        message="Tool call completed",
+                        duration_ms=duration_ms,
+                    ),
+                )
             return result
+
+        # ── Tool call failed → emit failed event ───────────────────────
+        if ws and op_id:
+            duration_ms = int((time.time() - t0) * 1000)
+            await ws.broadcast_ai_progress(
+                user_id=context.user_id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="tool_call",
+                    status="failed",
+                    model=model_id,
+                    tier="primary",
+                    message="Tool failed: tool-calling not supported by model",
+                    metadata={"tool_name": "ask_agent_with_tools", "error": "model_does_not_support_tools"},
+                    duration_ms=duration_ms,
+                ),
+            )
 
         # ── Fallback: plain agent without tools ───────────────────────
         logger.info("$ask: tool-calling failed, falling back to plain agent")
-        return await self._run_plain(enhanced_args, context)
+        t0_fb = time.time()
+        if ws and op_id:
+            await ws.broadcast_ai_progress(
+                user_id=context.user_id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="fallback",
+                    status="in_progress",
+                    model=model_id,
+                    tier="fallback",
+                    message="Falling back to plain LLM...",
+                ),
+            )
+        fallback_result = await self._run_plain(enhanced_args, context)
+        if ws and op_id:
+            fb_duration_ms = int((time.time() - t0_fb) * 1000)
+            await ws.broadcast_ai_progress(
+                user_id=context.user_id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="fallback",
+                    status="completed",
+                    model=model_id,
+                    tier="fallback",
+                    message="Fallback response ready",
+                    duration_ms=fb_duration_ms,
+                ),
+            )
+        return fallback_result
 
     async def _run_with_tools(self, args: str, context: SkillContext) -> SkillResult | None:
         """Try running with full tool set. Returns None if fallback needed."""

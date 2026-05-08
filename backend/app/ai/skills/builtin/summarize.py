@@ -5,6 +5,7 @@ it falls back to a plain-text agent without tools.
 """
 
 import logging
+import time
 
 from agno.agent import Agent
 from agno.tools.wikipedia import WikipediaTools
@@ -13,6 +14,7 @@ from sqlalchemy import select
 from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
 from app.ai.skills.builtin.ask import _is_tool_call_error
 from app.models.models import Note
+from app.schemas.ai_progress import AiProgressStage
 
 logger = logging.getLogger(__name__)
 
@@ -32,18 +34,94 @@ class SummarizeSkill(BaseSkill):
         ctx_text = "\n".join([f"- {n.content[:200]}" for n in recent]) if recent else "(no notes)"
         prompt = f"Recent notes:\n{ctx_text}\n\nRequest: {args or 'Summarize the recent notes'}"
 
+        model_id = context.model.id if hasattr(context.model, "id") else "unknown"
+        ws = context.ws_manager
+        op_id = context.operation_id
+
         # ── Try with WikipediaTools first ──────────────────────────────
+        t0 = time.time()
+        if ws and op_id:
+            await ws.broadcast_ai_progress(
+                user_id=context.user_id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="tool_call",
+                    status="in_progress",
+                    model=model_id,
+                    tier="primary",
+                    message="Executing tool: summarize with WikipediaTools",
+                ),
+            )
         result_data = await self._run_with_tools(prompt, context)
         if result_data is not None:
+            if ws and op_id:
+                duration_ms = int((time.time() - t0) * 1000)
+                await ws.broadcast_ai_progress(
+                    user_id=context.user_id,
+                    operation_id=op_id,
+                    stage_data=AiProgressStage(
+                        stage="tool_call",
+                        status="completed",
+                        model=model_id,
+                        tier="primary",
+                        message="Tool call completed",
+                        duration_ms=duration_ms,
+                    ),
+                )
             return SkillResult(
                 type="output",
                 content=f"📋 $summarize\n{result_data['content']}",
                 data={"wiki_sources": result_data.get("wiki_sources", [])},
             )
 
+        # ── Tool call failed → emit failed event ───────────────────────
+        if ws and op_id:
+            duration_ms = int((time.time() - t0) * 1000)
+            await ws.broadcast_ai_progress(
+                user_id=context.user_id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="tool_call",
+                    status="failed",
+                    model=model_id,
+                    tier="primary",
+                    message="Tool failed: WikipediaTools not supported by model",
+                    metadata={"tool_name": "WikipediaTools", "error": "model_does_not_support_tools"},
+                    duration_ms=duration_ms,
+                ),
+            )
+
         # ── Fallback: plain agent without tools ───────────────────────
         logger.info("$summarize: tool-calling failed, falling back to plain agent")
-        return await self._run_plain(prompt, context)
+        t0_fb = time.time()
+        if ws and op_id:
+            await ws.broadcast_ai_progress(
+                user_id=context.user_id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="fallback",
+                    status="in_progress",
+                    model=model_id,
+                    tier="fallback",
+                    message="Falling back to plain LLM...",
+                ),
+            )
+        fallback_result = await self._run_plain(prompt, context)
+        if ws and op_id:
+            fb_duration_ms = int((time.time() - t0_fb) * 1000)
+            await ws.broadcast_ai_progress(
+                user_id=context.user_id,
+                operation_id=op_id,
+                stage_data=AiProgressStage(
+                    stage="fallback",
+                    status="completed",
+                    model=model_id,
+                    tier="fallback",
+                    message="Fallback response ready",
+                    duration_ms=fb_duration_ms,
+                ),
+            )
+        return fallback_result
 
     async def _run_with_tools(self, prompt: str, context: SkillContext) -> dict | None:
         """Try with WikipediaTools. Returns None if fallback needed."""

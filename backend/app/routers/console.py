@@ -1,8 +1,12 @@
 """Console router — handles console input, command routing, skill dispatch, and session management."""
 
+import asyncio
 import json
 import logging
 import re
+from datetime import datetime
+import time
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -10,14 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.console_agent import execute_command
 from app.ai.intent_router import analyze_intent
-from app.ai.models import get_model_for_user
+from app.ai.models import get_model_by_tier, get_model_for_user
+from app.ai.session_titler import generate_session_title
 from app.ai.skills import skill_registry
 from app.ai.skills.base import SkillContext
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models.models import Channel, ConsoleMessage, ConsoleSession, Note, Server, User
 from app.plugins import plugin_manager
 from app.routers.ai import smart_create_note
 from app.routers.auth import get_current_user
+from app.schemas.ai_progress import AiProgressStage
 from app.schemas.schemas import (
     ApiResponse,
     ConsoleArchiveRequest,
@@ -31,6 +37,8 @@ from app.schemas.schemas import (
 )
 from app.services.note_service import fetch_notes_for_context
 from app.services.parser import parse_input
+from app.services.websocket import manager
+from app.services.websocket import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["console"])
@@ -396,6 +404,7 @@ async def _dispatch_skill(
     db: AsyncSession,
     server_context: dict | None = None,
     loaded_notes: list[str] | None = None,
+    operation_id: str | None = None,
 ) -> dict:
     model = await get_model_for_user(user_id, db)
     if model is None:
@@ -407,6 +416,8 @@ async def _dispatch_skill(
         model=model,
         server_context=server_context,
         loaded_notes=loaded_notes,
+        ws_manager=ws_manager,
+        operation_id=operation_id,
     )
     try:
         result = await skill_registry.dispatch(skill_name, skill_args, context)
@@ -417,6 +428,56 @@ async def _dispatch_skill(
             "type": "error",
             "content": f"Skill ${skill_name} failed: {exc}. Please check your API key.",
         }
+
+
+async def _generate_and_update_title(
+    session_id: int,
+    user_message: str,
+    user_id: int,
+) -> None:
+    """Background task: generate a session title and update DB + notify via WS.
+
+    Uses its own database session so the HTTP request session can close.
+    """
+    # Use a fresh database session independent of the request lifecycle
+    async with async_session() as db:
+        try:
+            # 1. Get a fast-tier model for the user
+            model = await get_model_by_tier(user_id, db, "fast")
+            if model is None:
+                logger.debug("No fast-tier model available for user %d, skipping title generation", user_id)
+                return
+
+            # 2. Generate the title
+            new_title = await generate_session_title(user_message, model)
+
+            # 3. Update the session title in DB
+            from sqlalchemy import update
+            from app.models.models import ConsoleSession
+
+            await db.execute(
+                update(ConsoleSession)
+                .where(ConsoleSession.id == session_id)
+                .values(title=new_title)
+            )
+            await db.commit()
+
+            # 4. Emit WebSocket event to notify frontend
+            await manager.send_to_user(
+                user_id,
+                {
+                    "type": "title_updated",
+                    "data": {
+                        "session_id": session_id,
+                        "title": new_title,
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
+
+            logger.info("Session %d title set to: %s", session_id, new_title)
+        except Exception as exc:
+            logger.warning("Background title generation failed for session %d: %s", session_id, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -499,12 +560,25 @@ async def console_execute(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    operation_id = str(uuid.uuid4())
+
     session = await _get_or_create_session(req.session_id, current_user.id, None, db)
 
     # Save user input
     await _save_message(session.id, "user", req.input, "text", db)
 
+    # Auto-generate session title (fire-and-forget, only for new sessions)
+    if session.title == "New Session":
+        asyncio.create_task(_generate_and_update_title(
+            session.id, req.input, current_user.id,
+        ))
+
+    t0 = time.time()
     parsed = parse_input(req.input)
+    await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+        stage="parsing", status="completed", model="", tier="",
+        message="Input parsed", duration_ms=int((time.time() - t0) * 1000)
+    ))
 
     # Extract loaded notes from session context (set by @Server #Channel without question)
     loaded_notes: list[str] | None = None
@@ -527,31 +601,55 @@ async def console_execute(
             )
             return ApiResponse(
                 success=False,
-                data={"type": "error", "content": msg.content, "session_id": session.id},
+                data={"type": "error", "content": msg.content, "session_id": session.id, "operation_id": operation_id},
                 message="AI is disabled",
             )
-        result = await _dispatch_skill(parsed.skill_name, parsed.skill_args, current_user.id, db, loaded_notes=loaded_notes)
+        await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+            stage="skill_dispatch", status="in_progress", model="", tier="",
+            message=f"Dispatching to skill: {parsed.skill_name}",
+            metadata={"skill": parsed.skill_name}
+        ))
+        t_skill = time.time()
+        result = await _dispatch_skill(parsed.skill_name, parsed.skill_args, current_user.id, db, loaded_notes=loaded_notes, operation_id=operation_id)
+        await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+            stage="skill_execution", status="completed", model="", tier="",
+            message=f"Skill {parsed.skill_name} completed",
+            metadata={"skill": parsed.skill_name, "result_type": result.get("type", "unknown")},
+            duration_ms=int((time.time() - t_skill) * 1000)
+        ))
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
-        return ApiResponse(success=True, data={**result, "session_id": session.id})
+        return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
     if parsed.is_command and parsed.command:
         if parsed.command == "clear":
             await _clear_session_messages(session.id, db)
             await _save_message(session.id, "system", "Session cleared.", "clear", db)
-            return ApiResponse(success=True, data={"type": "clear", "content": "Session cleared.", "session_id": session.id})
+            return ApiResponse(success=True, data={"type": "clear", "content": "Session cleared.", "session_id": session.id, "operation_id": operation_id})
 
         result = await execute_command(parsed.command, parsed.command_args, db, current_user.id)
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
-        return ApiResponse(success=True, data={**result, "session_id": session.id})
+        return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
     # --- $query Skill Routing (@Server #Channel question) ---
     _has_question = parsed.content.strip() and parsed.content.strip() != parsed.raw_input.strip()
     if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
         if (parsed.server_name or parsed.channel_name) and _has_question:
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="skill_dispatch", status="in_progress", model="", tier="",
+                message="Dispatching to skill: query",
+                metadata={"skill": "query", "routed_by": "pattern"}
+            ))
+            t_query = time.time()
             query_result = await _route_query_skill(
                 parsed, current_user.id, db, loaded_notes=loaded_notes,
             )
             if query_result is not None:
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="skill_execution", status="completed", model="", tier="",
+                    message="Query skill completed",
+                    metadata={"skill": "query"},
+                    duration_ms=int((time.time() - t_query) * 1000)
+                ))
                 await _save_message(
                     session.id, "assistant",
                     query_result.get("content", ""),
@@ -560,24 +658,39 @@ async def console_execute(
                 )
                 return ApiResponse(
                     success=True,
-                    data={**query_result, "session_id": session.id, "routed_skill": "query"},
+                    data={**query_result, "session_id": session.id, "routed_skill": "query", "operation_id": operation_id},
                 )
 
     # --- Context Loading: @Server #Channel without question ---
     if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
         if (parsed.server_name or parsed.channel_name) and not _has_question:
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="context_loading", status="in_progress", model="", tier="",
+                message="Loading context from @Server #Channel..."
+            ))
+            t_ctx = time.time()
             context_result = await _load_context(parsed, current_user.id, db, session)
             if context_result["type"] == "context_loaded":
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="context_loading", status="completed", model="", tier="",
+                    message="Context loaded successfully",
+                    duration_ms=int((time.time() - t_ctx) * 1000)
+                ))
                 return ApiResponse(
                     success=True,
-                    data={**context_result["data"], "session_id": session.id, "type": "context_loaded", "content": context_result["content"]},
+                    data={**context_result["data"], "session_id": session.id, "type": "context_loaded", "content": context_result["content"], "operation_id": operation_id},
                 )
             else:
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="context_loading", status="failed", model="", tier="",
+                    message=context_result["content"],
+                    duration_ms=int((time.time() - t_ctx) * 1000)
+                ))
                 # Server not found error
                 await _save_message(session.id, "assistant", context_result["content"], "error", db)
                 return ApiResponse(
                     success=False,
-                    data={"type": "error", "content": context_result["content"], "session_id": session.id},
+                    data={"type": "error", "content": context_result["content"], "session_id": session.id, "operation_id": operation_id},
                     message=context_result["content"],
                 )
 
@@ -585,18 +698,42 @@ async def console_execute(
     if req.ai_enabled:
         model = await get_model_for_user(current_user.id, db)
         if model is not None:
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="intent_analysis", status="in_progress", model="fast-tier", tier="fast",
+                message="Analyzing intent..."
+            ))
+            t_intent = time.time()
             intent_result = await analyze_intent(
                 req.input, model, skill_registry.list_skills(), threshold=0.75
             )
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="intent_analysis", status="completed", model="fast-tier", tier="fast",
+                message=f"Intent analysis complete" if intent_result.skill_name else "No intent match found",
+                metadata={"intent": intent_result.intent, "matched_skill": intent_result.skill_name},
+                duration_ms=int((time.time() - t_intent) * 1000)
+            ))
             if intent_result.skill_name:
                 # Auto-dispatch to matched skill
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="skill_dispatch", status="in_progress", model="", tier="",
+                    message=f"Dispatching to skill: {intent_result.skill_name}",
+                    metadata={"skill": intent_result.skill_name, "routed_by": "intent"}
+                ))
+                t_dispatch = time.time()
                 skill_result = await _dispatch_skill(
                     intent_result.skill_name,
                     intent_result.args or req.input,
                     current_user.id,
                     db,
                     loaded_notes=loaded_notes,
+                    operation_id=operation_id,
                 )
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="skill_execution", status="completed", model="", tier="",
+                    message=f"Skill {intent_result.skill_name} completed",
+                    metadata={"skill": intent_result.skill_name, "result_type": skill_result.get("type", "unknown")},
+                    duration_ms=int((time.time() - t_dispatch) * 1000)
+                ))
                 await _save_message(
                     session.id, "assistant",
                     skill_result.get("content", ""),
@@ -610,8 +747,15 @@ async def console_execute(
                         "session_id": session.id,
                         "routed_by_intent": intent_result.intent,
                         "routed_skill": intent_result.skill_name,
+                        "operation_id": operation_id,
                     },
                 )
+
+    # Fallback: no specific routing matched
+    await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+        stage="fallback", status="fallback", model="", tier="",
+        message="Using fallback execution"
+    ))
 
     # Dispatch to plugins first
     plugin_responses = await plugin_manager.dispatch_message(
@@ -642,8 +786,9 @@ async def console_execute(
 
     if isinstance(note_result.data, dict):
         note_result.data["session_id"] = session.id
+        note_result.data["operation_id"] = operation_id
     else:
-        note_result.data = {"session_id": session.id}
+        note_result.data = {"session_id": session.id, "operation_id": operation_id}
 
     return note_result
 
@@ -660,12 +805,25 @@ async def server_console_execute(
     if not server or server.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Server not found")
 
+    operation_id = str(uuid.uuid4())
+
     session = await _get_or_create_session(req.session_id, current_user.id, server_id, db)
 
     # Save user input
     await _save_message(session.id, "user", req.input, "text", db)
 
+    # Auto-generate session title (fire-and-forget, only for new sessions)
+    if session.title == "New Session":
+        asyncio.create_task(_generate_and_update_title(
+            session.id, req.input, current_user.id,
+        ))
+
+    t0 = time.time()
     parsed = parse_input(req.input)
+    await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+        stage="parsing", status="completed", model="", tier="",
+        message="Input parsed", duration_ms=int((time.time() - t0) * 1000)
+    ))
 
     # Extract loaded notes from session context (set by @Server #Channel without question)
     loaded_notes: list[str] | None = None
@@ -687,29 +845,42 @@ async def server_console_execute(
             )
             return ApiResponse(
                 success=False,
-                data={"type": "error", "content": msg.content, "session_id": session.id},
+                data={"type": "error", "content": msg.content, "session_id": session.id, "operation_id": operation_id},
                 message="AI is disabled",
             )
+        await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+            stage="skill_dispatch", status="in_progress", model="", tier="",
+            message=f"Dispatching to skill: {parsed.skill_name}",
+            metadata={"skill": parsed.skill_name}
+        ))
+        t_skill = time.time()
         result = await _dispatch_skill(
             parsed.skill_name, parsed.skill_args, current_user.id, db,
             server_context={"server_id": server_id, "server_name": server.name},
             loaded_notes=loaded_notes,
+            operation_id=operation_id,
         )
+        await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+            stage="skill_execution", status="completed", model="", tier="",
+            message=f"Skill {parsed.skill_name} completed",
+            metadata={"skill": parsed.skill_name, "result_type": result.get("type", "unknown")},
+            duration_ms=int((time.time() - t_skill) * 1000)
+        ))
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
-        return ApiResponse(success=True, data={**result, "session_id": session.id})
+        return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
     if parsed.is_command and parsed.command:
         if parsed.command == "clear":
             await _clear_session_messages(session.id, db)
             await _save_message(session.id, "system", "Session cleared.", "clear", db)
-            return ApiResponse(success=True, data={"type": "clear", "content": "Session cleared.", "session_id": session.id})
+            return ApiResponse(success=True, data={"type": "clear", "content": "Session cleared.", "session_id": session.id, "operation_id": operation_id})
 
         result = await execute_command(
             parsed.command, parsed.command_args, db, current_user.id,
             server_context={"server_id": server_id, "server_name": server.name}
         )
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
-        return ApiResponse(success=True, data={**result, "session_id": session.id})
+        return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
     # --- $query Skill Routing (#Channel question in server context) ---
     _has_question = parsed.content.strip() and parsed.content.strip() != parsed.raw_input.strip()
@@ -729,6 +900,12 @@ async def server_console_execute(
                     query_channel_id = ch.id
                     query_channel_name = ch.name
 
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="skill_dispatch", status="in_progress", model="", tier="",
+                message="Dispatching to skill: query",
+                metadata={"skill": "query", "routed_by": "pattern"}
+            ))
+            t_query = time.time()
             query_result = await _dispatch_skill(
                 "query",
                 parsed.content.strip(),
@@ -741,7 +918,14 @@ async def server_console_execute(
                     "channel_name": query_channel_name,
                 },
                 loaded_notes=loaded_notes,
+                operation_id=operation_id,
             )
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="skill_execution", status="completed", model="", tier="",
+                message="Query skill completed",
+                metadata={"skill": "query"},
+                duration_ms=int((time.time() - t_query) * 1000)
+            ))
             await _save_message(
                 session.id, "assistant",
                 query_result.get("content", ""),
@@ -750,26 +934,41 @@ async def server_console_execute(
             )
             return ApiResponse(
                 success=True,
-                data={**query_result, "session_id": session.id, "routed_skill": "query"},
+                data={**query_result, "session_id": session.id, "routed_skill": "query", "operation_id": operation_id},
             )
 
     # --- Context Loading: #Channel without question (server-scoped) ---
     if req.ai_enabled and not parsed.is_skill and not parsed.is_command:
         if parsed.channel_name and not _has_question:
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="context_loading", status="in_progress", model="", tier="",
+                message="Loading context from #Channel..."
+            ))
+            t_ctx = time.time()
             context_result = await _load_context(
                 parsed, current_user.id, db, session,
                 known_server_id=server_id, known_server_name=server.name,
             )
             if context_result["type"] == "context_loaded":
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="context_loading", status="completed", model="", tier="",
+                    message="Context loaded successfully",
+                    duration_ms=int((time.time() - t_ctx) * 1000)
+                ))
                 return ApiResponse(
                     success=True,
-                    data={**context_result["data"], "session_id": session.id, "type": "context_loaded", "content": context_result["content"]},
+                    data={**context_result["data"], "session_id": session.id, "type": "context_loaded", "content": context_result["content"], "operation_id": operation_id},
                 )
             else:
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="context_loading", status="failed", model="", tier="",
+                    message=context_result["content"],
+                    duration_ms=int((time.time() - t_ctx) * 1000)
+                ))
                 await _save_message(session.id, "assistant", context_result["content"], "error", db)
                 return ApiResponse(
                     success=False,
-                    data={"type": "error", "content": context_result["content"], "session_id": session.id},
+                    data={"type": "error", "content": context_result["content"], "session_id": session.id, "operation_id": operation_id},
                     message=context_result["content"],
                 )
 
@@ -777,10 +976,27 @@ async def server_console_execute(
     if req.ai_enabled:
         model = await get_model_for_user(current_user.id, db)
         if model is not None:
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="intent_analysis", status="in_progress", model="fast-tier", tier="fast",
+                message="Analyzing intent..."
+            ))
+            t_intent = time.time()
             intent_result = await analyze_intent(
                 req.input, model, skill_registry.list_skills(), threshold=0.75
             )
+            await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                stage="intent_analysis", status="completed", model="fast-tier", tier="fast",
+                message="Intent analysis complete" if intent_result.skill_name else "No intent match found",
+                metadata={"intent": intent_result.intent, "matched_skill": intent_result.skill_name},
+                duration_ms=int((time.time() - t_intent) * 1000)
+            ))
             if intent_result.skill_name:
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="skill_dispatch", status="in_progress", model="", tier="",
+                    message=f"Dispatching to skill: {intent_result.skill_name}",
+                    metadata={"skill": intent_result.skill_name, "routed_by": "intent"}
+                ))
+                t_dispatch = time.time()
                 skill_result = await _dispatch_skill(
                     intent_result.skill_name,
                     intent_result.args or req.input,
@@ -788,7 +1004,14 @@ async def server_console_execute(
                     db,
                     server_context={"server_id": server_id, "server_name": server.name},
                     loaded_notes=loaded_notes,
+                    operation_id=operation_id,
                 )
+                await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+                    stage="skill_execution", status="completed", model="", tier="",
+                    message=f"Skill {intent_result.skill_name} completed",
+                    metadata={"skill": intent_result.skill_name, "result_type": skill_result.get("type", "unknown")},
+                    duration_ms=int((time.time() - t_dispatch) * 1000)
+                ))
                 await _save_message(
                     session.id, "assistant",
                     skill_result.get("content", ""),
@@ -802,8 +1025,15 @@ async def server_console_execute(
                         "session_id": session.id,
                         "routed_by_intent": intent_result.intent,
                         "routed_skill": intent_result.skill_name,
+                        "operation_id": operation_id,
                     },
                 )
+
+    # Fallback: no specific routing matched
+    await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
+        stage="fallback", status="fallback", model="", tier="",
+        message="Using fallback execution"
+    ))
 
     smart_req = NoteCreateWithClassify(
         content=req.input,
@@ -821,8 +1051,9 @@ async def server_console_execute(
 
     if isinstance(note_result.data, dict):
         note_result.data["session_id"] = session.id
+        note_result.data["operation_id"] = operation_id
     else:
-        note_result.data = {"session_id": session.id}
+        note_result.data = {"session_id": session.id, "operation_id": operation_id}
 
     return note_result
 

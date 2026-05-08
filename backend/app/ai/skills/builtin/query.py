@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
 from agno.agent import Agent
 from sqlalchemy import select
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.models import get_model_by_tier
 from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
 from app.models.models import Channel, Server
+from app.schemas.ai_progress import AiProgressStage
 from app.services.note_service import fetch_notes_for_context
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,22 @@ class QuerySkill(BaseSkill):
         # 2. Stage 1 — Retrieval Agent (fast model)
         #    Select Top-5 most relevant notes from the fetched set
         # -----------------------------------------------------------------
+        # Emit progress: retrieval start
+        t_retrieval_start: float | None = None
+        if context.ws_manager and context.operation_id and context.user_id:
+            t_retrieval_start = time.time()
+            await context.ws_manager.broadcast_ai_progress(
+                context.user_id,
+                context.operation_id,
+                AiProgressStage(
+                    stage="retrieval",
+                    status="in_progress",
+                    model="",
+                    tier="fast",
+                    message="Searching notes...",
+                ),
+            )
+
         fast_model = await get_model_by_tier(context.user_id, db, tier="fast")
         if fast_model is None:
             fast_model = context.model  # fallback
@@ -95,6 +113,22 @@ class QuerySkill(BaseSkill):
         top_notes = await self._retrieve_top_notes(
             fast_model, question, raw_notes, server_name, channel_name
         )
+
+        # Emit progress: retrieval complete
+        if context.ws_manager and context.operation_id and context.user_id and t_retrieval_start is not None:
+            await context.ws_manager.broadcast_ai_progress(
+                context.user_id,
+                context.operation_id,
+                AiProgressStage(
+                    stage="retrieval",
+                    status="completed",
+                    model=getattr(fast_model, "id", ""),
+                    tier="fast",
+                    message=f"Found {len(top_notes)} notes",
+                    metadata={"notes_found": len(top_notes)},
+                    duration_ms=int((time.time() - t_retrieval_start) * 1000),
+                ),
+            )
 
         # -----------------------------------------------------------------
         # 3. Stage 2 — Answer Agent (strong model)
@@ -104,9 +138,40 @@ class QuerySkill(BaseSkill):
         if strong_model is None:
             strong_model = context.model  # fallback
 
+        # Emit progress: answer generation start
+        t_answer_start: float | None = None
+        if context.ws_manager and context.operation_id and context.user_id:
+            t_answer_start = time.time()
+            await context.ws_manager.broadcast_ai_progress(
+                context.user_id,
+                context.operation_id,
+                AiProgressStage(
+                    stage="answer_generation",
+                    status="in_progress",
+                    model=getattr(strong_model, "id", ""),
+                    tier="strong",
+                    message="Generating answer...",
+                ),
+            )
+
         answer = await self._generate_answer(
             strong_model, question, top_notes, server_name, channel_name
         )
+
+        # Emit progress: answer generation complete
+        if context.ws_manager and context.operation_id and context.user_id and t_answer_start is not None:
+            await context.ws_manager.broadcast_ai_progress(
+                context.user_id,
+                context.operation_id,
+                AiProgressStage(
+                    stage="answer_generation",
+                    status="completed",
+                    model=getattr(strong_model, "id", ""),
+                    tier="strong",
+                    message="Answer ready",
+                    duration_ms=int((time.time() - t_answer_start) * 1000),
+                ),
+            )
 
         # -----------------------------------------------------------------
         # 4. Build source citations and confidence
