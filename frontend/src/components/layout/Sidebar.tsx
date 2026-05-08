@@ -50,6 +50,7 @@ export default function Sidebar() {
 
       <div className="w-8 h-[2px] bg-[#35363c] rounded-full mb-1" />
 
+      <div className="flex-1 overflow-y-auto scrollbar-hide w-full flex flex-col items-center gap-2 min-h-0">
       {/* Server list */}
       {servers.map((server) => {
         const isActive = currentServerId === server.id && isHomeActive;
@@ -92,6 +93,7 @@ export default function Sidebar() {
         >
           <Plus className="w-5 h-5" />
         </div>
+      </div>
       </div>
 
       {/* Bottom nav */}

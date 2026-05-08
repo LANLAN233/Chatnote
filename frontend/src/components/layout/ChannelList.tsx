@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { Hash, Plus, ChevronDown, Book, Folder, Mic, Headphones, Settings } from "lucide-react";
-import { useServerStore, useChannelStore, useAuthStore } from "../../stores";
+import { Hash, Plus, ChevronDown, Book, Folder } from "lucide-react";
+import { useServerStore, useChannelStore } from "../../stores";
 import ChannelModal from "../channels/ChannelModal";
 import ServerFilesModal from "../servers/ServerFilesModal";
 
 export default function ChannelList() {
   const { servers, currentServerId } = useServerStore();
   const { channels, currentChannelId, fetchChannels, setCurrentChannel, deleteChannel } = useChannelStore();
-  const { user } = useAuthStore();
   const [showAddChannel, setShowAddChannel] = useState(false);
   const [editingChannel, setEditingChannel] = useState<{
     id: number;
@@ -131,32 +130,6 @@ export default function ChannelList() {
         </div>
       </div>
 
-      {/* User panel */}
-      <div className="bg-[#232428] px-2 py-[6px] flex items-center gap-2">
-        <div className="flex items-center gap-2 flex-1 p-1 rounded hover:bg-[#3f4147] cursor-pointer group min-w-0">
-          <div className="relative shrink-0">
-            <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-sm uppercase">
-              {user?.display_name?.charAt(0) || user?.username?.charAt(0) || "?"}
-            </div>
-            <div className="absolute bottom-0 right-0 w-3 h-3 border-[3px] border-[#232428] rounded-full bg-[#23a559]" />
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <p className="text-[13px] font-bold text-white truncate leading-none mb-[2px]">{user?.display_name || user?.username}</p>
-            <p className="text-[11px] text-[#949ba4] group-hover:text-gray-200 truncate leading-none">Online</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button className="w-8 h-8 flex items-center justify-center text-[#dbdee1] hover:bg-[#3f4147] rounded transition-colors" title="Mute">
-            <Mic size={16} />
-          </button>
-          <button className="w-8 h-8 flex items-center justify-center text-[#dbdee1] hover:bg-[#3f4147] rounded transition-colors" title="Deafen">
-            <Headphones size={16} />
-          </button>
-          <button className="w-8 h-8 flex items-center justify-center text-[#dbdee1] hover:bg-[#3f4147] rounded transition-colors" title="Settings">
-            <Settings size={16} />
-          </button>
-        </div>
-      </div>
 
       {/* Context menu */}
       {contextMenu && (
