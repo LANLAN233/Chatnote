@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useSearchParams } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import ChannelList from "./ChannelList";
 import HomeSidebar from "../home/HomeSidebar";
@@ -10,6 +10,7 @@ import { statsApi } from "../../services";
 export default function AppLayout() {
   const { fetchServers } = useServerStore();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [homeTab, setHomeTab] = useState<"overview" | "console" | "import" | "inbox" | "recent">("overview");
   const [inboxBadge, setInboxBadge] = useState(0);
 
@@ -32,6 +33,14 @@ export default function AppLayout() {
     const id = setInterval(loadBadge, 30000);
     return () => clearInterval(id);
   }, [loadBadge]);
+
+  // Sync tab param from URL to homeTab state
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "console" || tab === "import" || tab === "inbox" || tab === "recent" || tab === "overview") {
+      setHomeTab(tab);
+    }
+  }, [searchParams]);
 
   const isHomePage = location.pathname === "/";
   const noChannelListPaths = ["/calendar", "/plugins"];

@@ -1,7 +1,10 @@
+import datetime
 import json
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
+
+from app.schemas.ai_progress import AiProgressEvent, AiProgressStage
 
 
 class ConnectionManager:
@@ -74,6 +77,27 @@ class ConnectionManager:
                 "response": response
             },
             "timestamp": None
+        })
+
+    async def broadcast_ai_progress(
+        self,
+        user_id: int,
+        operation_id: str,
+        stage_data: AiProgressStage | AiProgressEvent,
+    ):
+        if isinstance(stage_data, AiProgressStage):
+            event = AiProgressEvent(
+                operation_id=operation_id,
+                stages=[stage_data],
+                current_stage=0,
+            )
+        else:
+            event = stage_data
+
+        await self.send_to_user(user_id, {
+            "type": "ai_progress",
+            "data": event.model_dump(),
+            "timestamp": datetime.datetime.now().isoformat(),
         })
 
 

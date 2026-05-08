@@ -350,15 +350,11 @@ describe("context loading", () => {
     const ctxResult = {
       type: "context_loaded",
       content: "Loaded context from @TestServer #general (5 notes)",
-      data: {
-        type: "context_loaded",
-        content: "Loaded context from @TestServer #general (5 notes)",
-        server_name: "TestServer",
-        channel_name: "general",
-        server_id: 1,
-        channel_id: 2,
-        notes_count: 5,
-      },
+      server_name: "TestServer",
+      channel_name: "general",
+      server_id: 1,
+      channel_id: 2,
+      notes_count: 5,
     };
     const ctxFn = vi.fn().mockResolvedValue(ctxResult);
 
@@ -427,15 +423,11 @@ describe("context loading", () => {
     const ctxResult = {
       type: "context_loaded",
       content: "Loaded context from @TestServer #general (5 notes)",
-      data: {
-        type: "context_loaded",
-        content: "Loaded context from @TestServer #general (5 notes)",
-        server_name: "TestServer",
-        channel_name: "general",
-        server_id: 1,
-        channel_id: 2,
-        notes_count: 5,
-      },
+      server_name: "TestServer",
+      channel_name: "general",
+      server_id: 1,
+      channel_id: 2,
+      notes_count: 5,
     };
     const ctxFn = vi.fn().mockResolvedValue(ctxResult);
 
@@ -485,15 +477,11 @@ describe("context loading", () => {
     const ctxResult = {
       type: "context_loaded",
       content: "Loaded context from @TestServer #general (5 notes)",
-      data: {
-        type: "context_loaded",
-        content: "Loaded context from @TestServer #general (5 notes)",
-        server_name: "TestServer",
-        channel_name: "general",
-        server_id: 1,
-        channel_id: 2,
-        notes_count: 5,
-      },
+      server_name: "TestServer",
+      channel_name: "general",
+      server_id: 1,
+      channel_id: 2,
+      notes_count: 5,
     };
     const textResult = { type: "text", content: "Here is the answer" };
     const ctxFn = vi.fn()
@@ -659,5 +647,141 @@ describe("context loading", () => {
     expect(screen.getByText(/@TestServer/)).toBeInTheDocument();
     expect(screen.getByText(/#general/)).toBeInTheDocument();
     expect(screen.getByText(/\(5条笔记\)/)).toBeInTheDocument();
+  });
+});
+
+describe("context_loaded state update", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("updates loadedContext when executeFn returns context_loaded response", async () => {
+    const ctxMockExecute = vi.fn().mockResolvedValue({
+      type: "context_loaded",
+      content: "已加载 @TestServer #general 的 5 条笔记作为上下文",
+      server_name: "TestServer",
+      channel_name: "general",
+      server_id: 1,
+      channel_id: 2,
+      notes_count: 5,
+    });
+
+    render(
+      <ConsoleCore
+        scope={{ type: "global" }}
+        executeFn={ctxMockExecute}
+        aiEnabled={true}
+      />
+    );
+
+    const input = screen.getByPlaceholderText("Note or /command or $skill...");
+    const sendButton = input.closest("div")!.querySelector("button")!;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "@TestServer #general" } });
+      fireEvent.click(sendButton);
+    });
+
+    // Verify executeFn was called with the raw text (no $ask prefix for @Server #Channel)
+    expect(ctxMockExecute).toHaveBeenCalledWith("@TestServer #general", true, undefined);
+
+    // Verify context chips appear
+    await waitFor(() => {
+      expect(screen.getByText(/上下文:/)).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText(/@TestServer/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/#general/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/\(5条笔记\)/)).toBeInTheDocument();
+  });
+
+  it("X button removes context chip", async () => {
+    const { consoleSessionApi } = await import("../../services");
+    const mockedApi = vi.mocked(consoleSessionApi);
+
+    // Mock session list so auto-load picks up a session
+    mockedApi.list.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: [
+          {
+            id: 1,
+            user_id: 1,
+            server_id: null,
+            title: "Test Session",
+            loaded_context: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+
+    mockedApi.get.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          id: 1,
+          user_id: 1,
+          server_id: null,
+          title: "Test Session",
+          loaded_context: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          messages: [],
+        },
+      },
+    });
+
+    mockedApi.update.mockResolvedValueOnce({
+      data: { success: true, data: {} as import("../../types").ConsoleSession },
+    });
+
+    const ctxMockExecute = vi.fn().mockResolvedValue({
+      type: "context_loaded",
+      content: "已加载 @TestServer #general 的 5 条笔记作为上下文",
+      server_name: "TestServer",
+      channel_name: "general",
+      server_id: 1,
+      channel_id: 2,
+      notes_count: 5,
+    });
+
+    render(
+      <ConsoleCore
+        scope={{ type: "global" }}
+        executeFn={ctxMockExecute}
+        aiEnabled={true}
+      />
+    );
+
+    // Wait for session auto-load
+    await waitFor(() => {
+      expect(mockedApi.get).toHaveBeenCalledWith(1);
+    });
+
+    const input = screen.getByPlaceholderText("Note or /command or $skill...");
+    const sendButton = input.closest("div")!.querySelector("button")!;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "@TestServer #general" } });
+      fireEvent.click(sendButton);
+    });
+
+    // Wait for context chip to appear
+    await waitFor(() => {
+      expect(screen.getByText(/上下文:/)).toBeInTheDocument();
+    });
+
+    // Click X button to remove context
+    const xButton = screen.getByTitle("移除上下文");
+    await act(async () => {
+      fireEvent.click(xButton);
+    });
+
+    // Context bar should disappear (chips removed)
+    await waitFor(() => {
+      expect(screen.queryByText(/上下文:/)).not.toBeInTheDocument();
+    });
   });
 });

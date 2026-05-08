@@ -6,7 +6,6 @@ import RegisterPage from "./components/auth/RegisterPage";
 import AppLayout from "./components/layout/AppLayout";
 import HomePage from "./components/home/HomePage";
 import NoteList from "./components/notes/NoteList";
-import ConsoleView from "./components/console/ConsoleView";
 import CalendarPage from "./components/calendar/CalendarPage";
 import PluginManagerPage from "./components/plugins/PluginManagerPage";
 import { useNotification } from "./hooks/useNotification";
@@ -39,7 +38,7 @@ function App() {
         element={isAuthenticated ? <AuthenticatedRoutes /> : <Navigate to="/login" />}
       >
         <Route index element={<HomePage />} />
-        <Route path="console" element={<ConsoleView />} />
+        <Route path="console" element={<Navigate to="/?tab=console" replace />} />
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="plugins" element={<PluginManagerPage />} />
         <Route path="server/:serverId" element={<HomePage />} />

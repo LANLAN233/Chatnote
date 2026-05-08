@@ -1,3 +1,5 @@
+import type { AiProgressEvent } from "../types";
+
 type WebSocketMessageHandler = (data: any) => void;
 
 class WebSocketService {
@@ -9,6 +11,8 @@ class WebSocketService {
   private onConnectCallbacks: (() => void)[] = [];
   private onDisconnectCallbacks: (() => void)[] = [];
   private heartbeatInterval: number | null = null;
+  private progressSubscribers: Map<string, Set<(event: AiProgressEvent) => void>> = new Map();
+  private latestProgress: Map<string, AiProgressEvent> = new Map();
 
   connect(): void {
     const token = localStorage.getItem("token");
@@ -93,6 +97,18 @@ class WebSocketService {
   private handleMessage(message: { type: string; data: any }): void {
     const handlers = this.messageHandlers.get(message.type) || [];
     handlers.forEach((handler) => handler(message.data));
+
+    // Route ai_progress events to progress subscribers
+    if (message.type === "ai_progress") {
+      const event = message.data as AiProgressEvent;
+      if (event && event.operation_id) {
+        this.latestProgress.set(event.operation_id, event);
+        const subs = this.progressSubscribers.get(event.operation_id);
+        if (subs) {
+          subs.forEach((cb) => cb(event));
+        }
+      }
+    }
   }
 
   on(type: string, handler: WebSocketMessageHandler): () => void {
@@ -135,6 +151,31 @@ class WebSocketService {
 
   isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  subscribeToProgress(
+    operationId: string,
+    callback: (event: AiProgressEvent) => void
+  ): () => void {
+    if (!this.progressSubscribers.has(operationId)) {
+      this.progressSubscribers.set(operationId, new Set());
+    }
+    this.progressSubscribers.get(operationId)!.add(callback);
+
+    return () => {
+      const subs = this.progressSubscribers.get(operationId);
+      if (subs) {
+        subs.delete(callback);
+        if (subs.size === 0) {
+          this.progressSubscribers.delete(operationId);
+        }
+      }
+    };
+  }
+
+  clearProgress(operationId: string): void {
+    this.progressSubscribers.delete(operationId);
+    this.latestProgress.delete(operationId);
   }
 }
 

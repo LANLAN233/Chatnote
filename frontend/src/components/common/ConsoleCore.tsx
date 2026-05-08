@@ -558,15 +558,20 @@ export default function ConsoleCore({
       const toolResults = resultData?.tool_results;
 
       // Handle context_loaded (from @Server #Channel context loading)
-      if (resultData?.type === "context_loaded") {
-        assistantContent = (resultData.content as string) || "";
+      if (result.type === "context_loaded") {
+        // NOTE: Backend spreads context_result["data"] into ApiResponse.data,
+        // and executeFn returns response.data (unwrapped), so context fields
+        // (server_name, channel_name, etc.) are at the top level of `result`,
+        // NOT nested under result.data (which would be resultData).
+        const r = result as unknown as Record<string, unknown>;
+        assistantContent = (r.content as string) || "";
         assistantType = "context_loaded";
         const ctx: LoadedContext = {
-          server_name: resultData.server_name as string,
-          channel_name: resultData.channel_name as string | null,
-          server_id: resultData.server_id as number,
-          channel_id: resultData.channel_id as number | null,
-          notes_count: resultData.notes_count as number,
+          server_name: r.server_name as string,
+          channel_name: r.channel_name as string | null,
+          server_id: r.server_id as number,
+          channel_id: r.channel_id as number | null,
+          notes_count: r.notes_count as number,
         };
         setLoadedContext((prev) => {
           const filtered = prev.filter(

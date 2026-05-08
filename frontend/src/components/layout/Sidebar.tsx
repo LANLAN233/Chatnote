@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Home, Terminal, Calendar, Puzzle, Plus, Settings } from "lucide-react";
 import { useServerStore, useAuthStore } from "../../stores";
 import ServerModal from "../servers/ServerModal";
@@ -10,6 +10,7 @@ export default function Sidebar() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [showModal, setShowModal] = useState(false);
   const [editingServer, setEditingServer] = useState<{ id: number; name: string; description?: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null);
@@ -18,12 +19,12 @@ export default function Sidebar() {
   const currentPath = location.pathname;
 
   const navItems = [
-    { id: "console", Icon: Terminal, tooltip: "Console", path: "/console", match: /^\/console/ },
+    { id: "console", Icon: Terminal, tooltip: "Console", path: "/?tab=console", match: /^\/console/ },
     { id: "calendar", Icon: Calendar, tooltip: "Schedule", path: "/calendar", match: /^\/calendar/ },
     { id: "plugins", Icon: Puzzle, tooltip: "Plugins & Bots", path: "/plugins", match: /^\/plugins/ },
   ];
 
-  const isHomeActive = currentPath === "/" || currentPath.startsWith("/server/");
+  const isHomeActive = currentPath === "/" || currentPath.startsWith("/server/") || searchParams.get("tab") === "console";
 
   const handleContextMenu = (e: React.MouseEvent, serverId: number) => {
     e.preventDefault();
@@ -97,7 +98,9 @@ export default function Sidebar() {
       <div className="mt-auto flex flex-col items-center gap-2 pt-2">
         <div className="w-8 h-[2px] bg-[#35363c] rounded-full" />
         {navItems.map((item) => {
-          const isActive = item.match.test(currentPath);
+          const isActive = item.id === "console"
+            ? currentPath === "/" && searchParams.get("tab") === "console"
+            : item.match.test(currentPath);
           return (
             <button
               key={item.id}

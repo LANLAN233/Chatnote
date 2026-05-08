@@ -464,3 +464,20 @@ export interface ThreadResponse {
   updated_at: string;
   messages: Note[];
 }
+
+export interface AiProgressStage {
+  stage: string;
+  status: "pending" | "in_progress" | "completed" | "failed" | "skipped" | "fallback";
+  model: string;
+  tier: string;
+  message: string;
+  metadata?: Record<string, unknown> | null;
+  duration_ms?: number | null;
+}
+
+export interface AiProgressEvent {
+  operation_id: string;
+  stages: AiProgressStage[];
+  current_stage: number;
+  overall_status: string;
+}
