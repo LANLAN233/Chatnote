@@ -5,19 +5,20 @@ import {
   Flame, TrendingUp, Tag, Inbox, Loader2, Sparkles, RefreshCw,
   ChevronDown, ChevronUp, Check, X
 } from "lucide-react";
-import { statsApi, aiApi, scheduleApi, inboxApi, channelApi, wsService } from "../../services";
+import { statsApi, aiApi, scheduleApi, inboxApi, channelApi, wsService, dailySummaryApi } from "../../services";
 import { useServerStore, useChannelStore } from "../../stores";
 import SearchModal from "../search/SearchModal";
 import HomeConsolePanel from "./HomeConsolePanel";
 import ScheduleImportPanel from "./ScheduleImportPanel";
 import HomeInboxPanel from "./HomeInboxPanel";
 import AiProgressPanel from "../console/AiProgressPanel";
+import DailySummaryPage from "./DailySummaryPage";
 import SmartInput from "../common/SmartInput";
 import type { StatsData, SmartCreateResult, Schedule, Note, Channel, RecentNote, DailySummaryResponse, AiProgressEvent } from "../../types";
 
 interface OutletContext {
-  homeTab: "overview" | "console" | "import" | "inbox" | "recent";
-  setHomeTab: (tab: "overview" | "console" | "import" | "inbox" | "recent") => void;
+  homeTab: "overview" | "console" | "import" | "inbox" | "recent" | "daily-summary";
+  setHomeTab: (tab: "overview" | "console" | "import" | "inbox" | "recent" | "daily-summary") => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -173,6 +174,40 @@ function OverviewTab() {
     } catch {}
   }, []);
 
+  const handleRegenerate = useCallback(async () => {
+    if (!localStorage.getItem("token")) return;
+    setSummaryLoading(true);
+    setSummaryProgress(null);
+
+    // Subscribe to live progress events for daily summary
+    const unsub = wsService.on("ai_progress", (event: AiProgressEvent) => {
+      if (event.operation_id?.startsWith("daily_summary")) {
+        setSummaryProgress(event);
+      }
+    });
+    summaryUnsubRef.current = unsub;
+
+    try {
+      // Use yesterday's date — daily summary is about yesterday's learning
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dateStr = yesterday.toISOString().split("T")[0];
+      const { data } = await dailySummaryApi.regenerate(dateStr);
+      if (data?.data?.summary) {
+        setDailySummary(data.data as DailySummaryResponse);
+      } else {
+        console.warn("[DailySummary] Regenerate returned no summary data");
+      }
+    } catch (e) {
+      console.error("[DailySummary] Regenerate failed:", e);
+    } finally {
+      setSummaryLoading(false);
+      setSummaryProgress(null);
+      summaryUnsubRef.current?.();
+      summaryUnsubRef.current = null;
+    }
+  }, []);
+
   const loadDailySummary = useCallback(async () => {
     if (!localStorage.getItem("token")) return;
     setSummaryLoading(true);
@@ -187,10 +222,40 @@ function OverviewTab() {
     summaryUnsubRef.current = unsub;
 
     try {
-      const { data } = await statsApi.getDailySummary?.() ?? { data: null };
-      if (data?.data) setDailySummary(data.data as DailySummaryResponse);
-    } catch {
-      // silent
+      // STEP 1: Try getting from DB cache first (fast)
+      // Use yesterday's date — daily summary is about yesterday's learning
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dateStr = yesterday.toISOString().split("T")[0];
+      try {
+        const historyRes = await dailySummaryApi.getHistory(dateStr, dateStr);
+        const cachedItem = historyRes.data.data?.find((d: any) => d.date === dateStr);
+        if (cachedItem) {
+          // DB has a cached entry — fetch full details and return immediately
+          const { data: fullData } = await statsApi.getDailySummary(dateStr);
+          if (fullData?.data) {
+            setDailySummary(fullData.data as DailySummaryResponse);
+            setSummaryLoading(false);
+            setSummaryProgress(null);
+            summaryUnsubRef.current?.();
+            summaryUnsubRef.current = null;
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("[DailySummary] Cache check failed:", e);
+      }
+
+      // STEP 2: No cache — run pipeline (may be slow)
+      const { data } = await statsApi.getDailySummary(dateStr) ?? { data: null };
+      if (data?.data) {
+        setDailySummary(data.data as DailySummaryResponse);
+        if (!data.data.summary || data.data.summary.startsWith("You recorded")) {
+          console.warn("[DailySummary] Pipeline returned fallback text (no AI content):", data.data.summary);
+        }
+      }
+    } catch (e) {
+      console.error("[DailySummary] Pipeline call failed:", e);
     } finally {
       setSummaryLoading(false);
       setSummaryProgress(null);
@@ -566,7 +631,7 @@ function OverviewTab() {
                   <Sparkles size={14} className="text-yellow-400" /> 每日总结
                 </h4>
                 <button
-                  onClick={loadDailySummary}
+                  onClick={handleRegenerate}
                   disabled={summaryLoading}
                   className="text-[#949ba4] hover:text-white transition-colors"
                   title="重新生成"
@@ -763,6 +828,7 @@ export default function HomePage() {
       {homeTab === "inbox" && <HomeInboxPanel />}
       {homeTab === "console" && <HomeConsolePanel />}
       {homeTab === "import" && <ScheduleImportPanel />}
+      {homeTab === "daily-summary" && <DailySummaryPage />}
     </div>
   );
 }

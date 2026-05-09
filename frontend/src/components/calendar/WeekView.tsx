@@ -8,6 +8,7 @@ interface WeekViewProps {
   onDateChange: (date: Date) => void;
   servers: Server[];
   channels: Channel[];
+  refreshTrigger?: number;
 }
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -27,6 +28,7 @@ export default function WeekView({
   onDateChange,
   servers,
   channels,
+  refreshTrigger,
 }: WeekViewProps) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
@@ -47,7 +49,7 @@ export default function WeekView({
 
   useEffect(() => {
     loadSchedules();
-  }, [currentDate]);
+  }, [currentDate, refreshTrigger]);
 
   const loadSchedules = async () => {
     try {

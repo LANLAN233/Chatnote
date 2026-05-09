@@ -1,8 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { AiProgressEvent } from "../../types";
 import ConsoleCore from "./ConsoleCore";
 
 Element.prototype.scrollIntoView = vi.fn();
+
+const mockClearProgress = vi.fn();
+vi.mock("../../hooks/useAiProgress", () => ({
+  useAiProgress: vi.fn(() => ({
+    progress: null,
+    disconnected: false,
+    startTracking: vi.fn(),
+    stopTracking: vi.fn(),
+    clearProgress: mockClearProgress,
+  })),
+}));
 
 vi.mock("../../services", () => ({
   consoleSessionApi: {
@@ -21,6 +33,7 @@ vi.mock("../../services", () => ({
   },
   wsService: {
     on: vi.fn(() => vi.fn()),
+    onDisconnect: vi.fn(() => vi.fn()),
   },
 }));
 
@@ -967,5 +980,216 @@ describe("title_updated WebSocket handler", () => {
 
     // Verify no additional session load (get only called once for initial load)
     expect(vi.mocked(consoleSessionApi.get)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("session switch clears progress", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("calls clearProgress on session switch", async () => {
+    const { consoleSessionApi } = await import("../../services");
+    const mockedApi = vi.mocked(consoleSessionApi);
+
+    const mockSession = (id: number, title: string) => ({
+      id,
+      user_id: 1,
+      server_id: null,
+      title,
+      loaded_context: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    mockedApi.list.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: [mockSession(1, "Session One"), mockSession(2, "Session Two")],
+      },
+    });
+
+    mockedApi.get.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { ...mockSession(1, "Session One"), messages: [] },
+      },
+    });
+
+    mockedApi.get.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { ...mockSession(2, "Session Two"), messages: [] },
+      },
+    });
+
+    render(
+      <ConsoleCore scope={{ type: "global" }} executeFn={mockExecuteFn} />
+    );
+
+    // Wait for auto-select of session 1 — clearProgress fires on mount + on sessionId change
+    await waitFor(() => {
+      expect(mockedApi.get).toHaveBeenCalledWith(1);
+    });
+    expect(mockClearProgress).toHaveBeenCalledTimes(2);
+
+    // Click session 2 in sidebar to switch
+    const sessionTwoBtn = screen.getByText("Session Two");
+    await act(async () => {
+      fireEvent.click(sessionTwoBtn);
+    });
+
+    // Wait for session 2 to load
+    await waitFor(() => {
+      expect(mockedApi.get).toHaveBeenCalledWith(2);
+    });
+
+    expect(mockClearProgress).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("AiProgressPanel integration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders AiProgressPanel during loading and shrinks on completion", async () => {
+    const { useAiProgress } = await import("../../hooks/useAiProgress");
+    const mockedUseAiProgress = vi.mocked(useAiProgress);
+
+    // Phase 1: in_progress — panel should be expanded with visible stage list
+    const inProgressData: AiProgressEvent = {
+      operation_id: "op-1",
+      stages: [
+        {
+          stage: "retrieval",
+          status: "completed",
+          model: "gpt-4",
+          tier: "strong",
+          message: "Retrieved 3 notes",
+          duration_ms: 1200,
+        },
+        {
+          stage: "answer_generation",
+          status: "in_progress",
+          model: "gpt-4",
+          tier: "strong",
+          message: "Generating answer...",
+        },
+      ],
+      current_stage: 1,
+      overall_status: "in_progress",
+    };
+
+    mockedUseAiProgress.mockReturnValue({
+      progress: inProgressData,
+      disconnected: false,
+      startTracking: vi.fn(),
+      stopTracking: vi.fn(),
+      clearProgress: mockClearProgress,
+    });
+
+    let resolveDeferred!: (value: unknown) => void;
+    const deferredExecuteFn = vi
+      .fn()
+      .mockReturnValue(new Promise<unknown>((r) => { resolveDeferred = r; }));
+
+    render(
+      <ConsoleCore
+        scope={{ type: "global" }}
+        executeFn={deferredExecuteFn}
+        aiEnabled={true}
+      />
+    );
+
+    const input = screen.getByPlaceholderText("Note or /command or $skill...");
+    const sendButton = input.closest("div")!.querySelector("button")!;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "帮我总结" } });
+      fireEvent.click(sendButton);
+    });
+
+    // AiProgressPanel should appear during loading
+    await waitFor(() => {
+      expect(screen.getByTestId("progress-summary")).toBeInTheDocument();
+    });
+
+    // Stage list should be expanded for in_progress status
+    const step0 = screen.getByTestId("progress-step-0");
+    expect(step0).toBeVisible();
+    const stepContainer = step0.parentElement?.parentElement;
+    expect(stepContainer?.className).toContain("max-h-96");
+    expect(stepContainer?.className).toContain("opacity-100");
+
+    // Resolve the deferred promise — loading finishes, panel disappears
+    await act(async () => {
+      resolveDeferred({ type: "text", content: "Here is your summary" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("progress-summary")).not.toBeInTheDocument();
+    });
+
+    // Phase 2: completed — panel should show 完成 summary and collapsed stage list
+    const completedData: AiProgressEvent = {
+      operation_id: "op-2",
+      stages: [
+        {
+          stage: "retrieval",
+          status: "completed",
+          model: "gpt-4",
+          tier: "strong",
+          message: "Retrieved 5 notes",
+          duration_ms: 800,
+        },
+        {
+          stage: "answer_generation",
+          status: "completed",
+          model: "gpt-4",
+          tier: "strong",
+          message: "Answer ready",
+          duration_ms: 1500,
+        },
+      ],
+      current_stage: 1,
+      overall_status: "completed",
+    };
+    mockedUseAiProgress.mockReturnValue({
+      progress: completedData,
+      disconnected: false,
+      startTracking: vi.fn(),
+      stopTracking: vi.fn(),
+      clearProgress: mockClearProgress,
+    });
+
+    let resolveDeferred2!: (value: unknown) => void;
+    deferredExecuteFn.mockReturnValue(
+      new Promise<unknown>((r) => { resolveDeferred2 = r; })
+    );
+
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "再问一个问题" } });
+      fireEvent.click(sendButton);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("progress-summary")).toBeInTheDocument();
+    });
+
+    // Completed summary should show 完成 text
+    const toggle = screen.getByTestId("progress-toggle");
+    expect(toggle.textContent).toContain("完成");
+    expect(toggle.textContent).toContain("2/2");
+
+    // Stage list should be collapsed for completed status
+    const step0Completed = screen.queryByTestId("progress-step-0");
+    const completedContainer = step0Completed?.parentElement?.parentElement;
+    expect(completedContainer?.className).toContain("max-h-0");
+    expect(completedContainer?.className).toContain("opacity-0");
+
+    // Cleanup: resolve second deferred to avoid pending state
+    await act(async () => {
+      resolveDeferred2({ type: "text", content: "Answer 2" });
+    });
   });
 });

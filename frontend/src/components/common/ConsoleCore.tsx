@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Terminal, RefreshCw, ChevronLeft, ChevronRight, X,
 } from "lucide-react";
-import type { ConsoleMessage, ConsoleMessageMetadata, ConsoleSession, LoadedContext, Server, Channel, AiProgressEvent } from "../../types";
+import type { ConsoleMessage, ConsoleMessageMetadata, ConsoleSession, LoadedContext, Server, Channel } from "../../types";
+import { useAiProgress } from "../../hooks/useAiProgress";
 import { consoleSessionApi, serverApi, channelApi, wsService } from "../../services";
 import MessageList from "../console/MessageList";
 import ConsoleInput from "../console/ConsoleInput";
@@ -73,12 +74,12 @@ export default function ConsoleCore({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectionToolbarRef = useRef<HTMLDivElement>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
-  const [currentProgress, setCurrentProgress] = useState<AiProgressEvent | null>(null);
-  const isProcessingRef = useRef(false);
+  const { progress: currentProgress, disconnected, startTracking, stopTracking, clearProgress } = useAiProgress();
 
   useEffect(() => { loadSessions(); }, []);
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isLoading]);
   useEffect(() => { inputRef.current?.focus(); }, [currentSessionId]);
+  useEffect(() => { clearProgress(); }, [currentSessionId]);
 
   // T19: Listen for backend-generated session titles via WebSocket
   useEffect(() => {
@@ -215,15 +216,8 @@ export default function ConsoleCore({
     const text = input.trim(); if (!text || isLoading) return;
     setMessages(prev => [...prev, { id: -Date.now(), session_id: currentSessionId || 0, role: "user", content: text, type: "text", created_at: new Date().toISOString() }]);
     setInput(""); setIsLoading(true); setShowSuggestions(false);
-    isProcessingRef.current = true;
-    setCurrentProgress(null);
-    let unsub: (() => void) | null = null;
+    startTracking();
     try {
-      unsub = wsService.on("ai_progress", (event: AiProgressEvent) => {
-        if (isProcessingRef.current) {
-          setCurrentProgress(event as AiProgressEvent);
-        }
-      });
       let execText = text;
       const isMention = text.trim().startsWith("@") && !text.trim().startsWith("@file:");
       if (aiEnabled && !text.startsWith("/") && !text.startsWith("$") && !isMention && scope.type === "global") execText = `$ask ${text}`;
@@ -255,9 +249,7 @@ export default function ConsoleCore({
     } catch {
       setMessages(prev => [...prev, { id: -(Date.now() + 1), session_id: currentSessionId || 0, role: "assistant", content: "Failed to execute command. Please try again.", type: "error", created_at: new Date().toISOString() }]);
     } finally {
-      isProcessingRef.current = false;
-      if (unsub) unsub();
-      setCurrentProgress(null);
+      stopTracking();
       setIsLoading(false);
       inputRef.current?.focus();
     }
@@ -317,6 +309,11 @@ export default function ConsoleCore({
             onQuerySources={setQuerySourcesMessage} isLoading={isLoading} loadingSession={loadingSession}
             messagesContainerRef={messagesContainerRef} logEndRef={logEndRef} onNavigateToSource={onNavigateToSource}
           />
+          {isLoading && disconnected && (
+            <div className="px-3 py-2 bg-[#f23f43]/10 border border-[#f23f43]/20 text-[#f23f43] text-xs rounded mx-3 shrink-0">
+              WebSocket 连接中断 — AI 进度更新已停止，等待 HTTP 响应...
+            </div>
+          )}
           {isLoading && currentProgress && (
             <div className="px-4 py-1 shrink-0">
               <AiProgressPanel progress={currentProgress} />

@@ -10,6 +10,7 @@ from app.schemas.ai_progress import AiProgressEvent, AiProgressStage
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[int, list[WebSocket]] = {}
+        self._operation_events: dict[str, AiProgressEvent] = {}
 
     async def connect(self, websocket: WebSocket, user_id: int):
         await websocket.accept()
@@ -86,11 +87,22 @@ class ConnectionManager:
         stage_data: AiProgressStage | AiProgressEvent,
     ):
         if isinstance(stage_data, AiProgressStage):
-            event = AiProgressEvent(
-                operation_id=operation_id,
-                stages=[stage_data],
-                current_stage=0,
-            )
+            existing = self._operation_events.get(operation_id)
+            if existing is not None:
+                existing.stages.append(stage_data)
+                existing.current_stage = len(existing.stages) - 1
+                if stage_data.status in ("completed", "failed"):
+                    existing.overall_status = stage_data.status
+                else:
+                    existing.overall_status = "in_progress"
+                event = existing
+            else:
+                event = AiProgressEvent(
+                    operation_id=operation_id,
+                    stages=[stage_data],
+                    current_stage=0,
+                )
+                self._operation_events[operation_id] = event
         else:
             event = stage_data
 
@@ -99,6 +111,10 @@ class ConnectionManager:
             "data": event.model_dump(),
             "timestamp": datetime.datetime.now().isoformat(),
         })
+
+    def cleanup_operation(self, operation_id: str):
+        """Remove accumulated operation data after completion."""
+        self._operation_events.pop(operation_id, None)
 
 
 manager = ConnectionManager()

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.ai.models import PROVIDER_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,8 @@ Your task is to intelligently parse course syllabi, schedules, or curriculum des
    - Handle various formats: "周一 8:00-9:35", "Mon/Wed/Fri 2pm", etc.
    - Include location info in description when available
    - Handle exam dates, deadlines, and special events
-   - Distinguish between lecture, lab, and review sessions
+    - Distinguish between lecture, lab, and review sessions
+    - **CRITICAL**: Every schedule MUST include a `server_name` field that matches exactly one of the `servers[*].name` values. This is required for the system to associate schedules with the correct server/channel.
 
 4. **Smart Suggestions**
    - Identify missing study resources (e.g., "建议添加 #错题本 频道")
@@ -149,7 +151,8 @@ Your task is to intelligently parse course syllabi, schedules, or curriculum des
             "day_of_week": 0-6 or null,
             "repeat_rule": {"type": "weekly"} or null,
             "is_all_day": false,
-            "confidence": 0.0-1.0
+            "confidence": 0.0-1.0,
+            "server_name": "对应Server的名称（必须与servers中的某个name一致）"
         }
     ],
     "suggestions": [
@@ -167,6 +170,40 @@ Your task is to intelligently parse course syllabi, schedules, or curriculum des
 - Schedules: include all recurring patterns, handle edge cases
 - Suggestions: be specific and genuinely useful, not generic
 - Handle ambiguous or incomplete input gracefully"""
+
+# Mid-length prompt optimized for Kimi k2.5 vision — more detailed than the
+# original 16-line version for better structure extraction, but shorter than
+# the full 72-line SCHEDULE_IMPORT_PROMPT to avoid image processing timeout.
+KIMI_VISION_PROMPT = """You are an expert academic schedule analyst for ChatNote. Extract ALL courses, topics, and schedule information from the provided image and output structured JSON. Do NOT add markdown formatting, code fences, or explanations outside the JSON.
+
+## Analysis Strategy
+
+1. **Course Extraction**
+   Identify ALL courses/subjects mentioned in the image. Use concise Chinese names (2-10 characters). Group related sub-topics under the same course server (e.g., "理论力学" and "材料力学" both under "力学").
+
+2. **Topic Hierarchy**
+   Break each course into logical chapters/units as channels. Each channel represents a distinct learning module. For each channel, generate a brief 1-line overview note. Consider prerequisite relationships when ordering channels.
+
+3. **Schedule Extraction**
+   Extract ALL class times, recurrence patterns, and locations. Handle formats like "周一 8:00-9:35", "Mon/Wed/Fri 2pm", "第1-18周". Include location info in the description field. Distinguish between lectures, labs, and review sessions. Handle exam dates and special events.
+
+4. **Smart Suggestions**
+   Identify missing study resources (e.g., "建议添加 #习题集 频道"). Suggest complementary channels, note scheduling conflicts, recommend review schedules. Use type "channel" for channel suggestions, "schedule" for schedule items, "study_tip" for general advice.
+
+## Output Format
+{
+  "servers": [{"name": "CourseName", "channels": [{"name": "Chapter 1", "notes": [{"content": "Brief overview"}]}]}],
+  "schedules": [{"title": "CourseName", "start_time": "HH:MM", "end_time": "HH:MM", "date": "YYYY-MM-DD or null", "day_of_week": 0, "repeat_rule": {"type": "weekly"} or null, "is_all_day": false, "server_name": "对应Server的名称（必须与servers中的某个name一致）", "description": "Location or notes", "confidence": 0.9}],
+  "suggestions": [{"type": "channel", "target_server": "Server Name", "message": "建议添加 #习题集 频道"}]
+}
+
+## Rules
+- day_of_week: 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
+- **CRITICAL**: Every schedule MUST include a "server_name" field that matches EXACTLY one of the servers[*].name values
+- Use concise Chinese names for courses
+- Group related topics as channels under each course server
+- ALL courses found in the image MUST appear in both servers and schedules arrays
+- Output ONLY valid JSON — no markdown code fences, no explanatory text"""
 
 
 def create_schedule_parser_agent(model: OpenAIChat) -> Agent:
@@ -196,6 +233,22 @@ def create_schedule_import_agent(model: OpenAIChat) -> Agent:
     )
 
 
+def _apply_default_end_time(result: dict) -> dict:
+    """If start_time is present but end_time is missing and not all-day, default to +1 hour."""
+    start_time = result.get("start_time")
+    end_time = result.get("end_time")
+    if start_time and not end_time and not result.get("is_all_day"):
+        try:
+            parts = start_time.split(":")
+            if len(parts) == 2:
+                h, m = int(parts[0]), int(parts[1])
+                end_h = (h + 1) % 24
+                result["end_time"] = f"{end_h:02d}:{m:02d}"
+        except Exception:
+            pass
+    return result
+
+
 async def parse_natural_language_schedule(
     text: str,
     model: OpenAIChat | None,
@@ -206,12 +259,12 @@ async def parse_natural_language_schedule(
     """
     local = _try_local_parse(text)
     if local and local.get("confidence", 0) > 0.8:
-        return local
+        return _apply_default_end_time(local)
 
     if model is None:
         if local:
-            return local
-        return {
+            return _apply_default_end_time(local)
+        return _apply_default_end_time({
             "title": text[:50],
             "description": None,
             "start_time": "09:00",
@@ -221,7 +274,7 @@ async def parse_natural_language_schedule(
             "repeat_rule": None,
             "is_all_day": False,
             "confidence": 0.3,
-        }
+        })
 
     agent = create_schedule_parser_agent(model)
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -237,13 +290,43 @@ async def parse_natural_language_schedule(
         )
         result = response.content
         if isinstance(result, ParsedSchedule):
-            return result.model_dump()
-        return result if isinstance(result, dict) else {}
-    except Exception as e:
-        logger.warning("Schedule parse via Agent failed: %s, using local fallback", e)
+            return _apply_default_end_time(result.model_dump())
+        # Try model_validate (handles dict, string via pydantic v2 coercion)
+        if result is not None:
+            try:
+                validated = ParsedSchedule.model_validate(result)
+                return _apply_default_end_time(validated.model_dump())
+            except Exception:
+                pass
+        # Try parsing JSON from string (some models return raw JSON text)
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+                validated = ParsedSchedule.model_validate(parsed)
+                return _apply_default_end_time(validated.model_dump())
+            except Exception:
+                # Try extracting JSON from markdown code block
+                match = re.search(r'```json\s*(.*?)\s*```', result, re.DOTALL)
+                if match:
+                    try:
+                        parsed = json.loads(match.group(1))
+                        validated = ParsedSchedule.model_validate(parsed)
+                        return _apply_default_end_time(validated.model_dump())
+                    except Exception:
+                        pass
+                # Try extracting first JSON object
+                match = re.search(r'\{.*\}', result, re.DOTALL)
+                if match:
+                    try:
+                        parsed = json.loads(match.group())
+                        validated = ParsedSchedule.model_validate(parsed)
+                        return _apply_default_end_time(validated.model_dump())
+                    except Exception:
+                        pass
+        logger.warning("Schedule parse: Agent returned unparseable result type=%s, using fallback", type(result).__name__)
         if local:
-            return local
-        return {
+            return _apply_default_end_time(local)
+        return _apply_default_end_time({
             "title": text[:50],
             "description": None,
             "start_time": "09:00",
@@ -253,13 +336,84 @@ async def parse_natural_language_schedule(
             "repeat_rule": None,
             "is_all_day": False,
             "confidence": 0.3,
-        }
+        })
+    except Exception as e:
+        logger.warning("Schedule parse via Agent failed: %s, using local fallback", e)
+        if local:
+            return _apply_default_end_time(local)
+        return _apply_default_end_time({
+            "title": text[:50],
+            "description": None,
+            "start_time": "09:00",
+            "end_time": None,
+            "date": date.today().isoformat(),
+            "day_of_week": None,
+            "repeat_rule": None,
+            "is_all_day": False,
+            "confidence": 0.3,
+        })
+
+
+async def _call_kimi_vision_sdk(
+    text: str | None,
+    image_url: str,
+    client,
+) -> dict[str, Any]:
+    """Call Kimi k2.5 vision via raw openai SDK (bypasses Agno).
+
+    Used as a fallback when Agno's extra_body forwarding fails or when
+    the user's default provider lacks real vision capability.
+    """
+    content_items: list[dict[str, Any]] = []
+    if text:
+        content_items.append({"type": "text", "text": text})
+    resolved_url = _resolve_image_url(image_url)
+    content_items.append({
+        "type": "image_url",
+        "image_url": {"url": resolved_url},
+    })
+
+    try:
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=PROVIDER_CONFIG["moonshot"]["vision_model"],
+                messages=[
+                    {"role": "system", "content": KIMI_VISION_PROMPT},
+                    {"role": "user", "content": content_items},
+                ],
+                # max_tokens=40000 prevents output truncation; Kimi k2.5 supports up to 128k context
+                max_tokens=40000,
+                extra_body={"thinking": {"type": "disabled"}},
+                temperature=0.6,
+                top_p=0.95,
+            ),
+            timeout=300.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Kimi vision SDK call timed out for image: %s", image_url)
+        return {"servers": [], "schedules": [], "suggestions": [{"type": "error", "message": "Kimi 图片识别超时，请尝试压缩图片后重试"}]}
+    except Exception:
+        logger.exception("Kimi vision SDK call failed")
+        return {"servers": [], "schedules": [], "suggestions": [{"type": "error", "message": "Kimi 图片识别失败，请稍后重试"}]}
+
+    raw_content = response.choices[0].message.content
+    try:
+        parsed = json.loads(raw_content)
+    except json.JSONDecodeError:
+        # Try to extract JSON from markdown code block
+        match = re.search(r'\{.*\}', raw_content or "", re.DOTALL)
+        if match:
+            parsed = json.loads(match.group())
+        else:
+            parsed = {"servers": [], "schedules": [], "suggestions": []}
+
+    return parsed
 
 
 async def parse_schedule_import(
     text: str | None,
     image_url: str | None,
-    model: OpenAIChat,
+    model: OpenAIChat | None = None,
 ) -> dict[str, Any]:
     """Parse course syllabus / schedule text or image into structured suggestions.
     
@@ -273,6 +427,28 @@ async def parse_schedule_import(
             logger.info("Schedule import: using local regex parse (instant)")
             return local
     
+    # ── Return error if image input but no model available ──────────
+    if image_url and model is None:
+        return {
+            "servers": [],
+            "schedules": [],
+            "suggestions": [
+                {
+                    "type": "error",
+                    "target_server": None,
+                    "message": "图片识别需要支持视觉的 AI 模型。请确认 API Key 配置正确，或使用支持图片识别的模型（如 GPT-4o、智谱 GLM-4V、通义千问 VL）。",
+                }
+            ],
+        }
+    
+    # ── Return empty for text-only without model ─────────────────────
+    if model is None:
+        if text:
+            local = _try_local_parse_schedule_import(text)
+            if local and _has_meaningful_data(local):
+                return local
+        return {"servers": [], "schedules": [], "suggestions": []}
+
     # ── AI agent for complex text or image input ────────────────────
     agent = create_schedule_import_agent(model)
 
@@ -533,6 +709,7 @@ def _try_local_parse_schedule_import(text: str) -> dict | None:
                 "repeat_rule": {"type": "weekly"},
                 "is_all_day": False,
                 "confidence": 0.85,
+                "server_name": course_name,
             })
             pending_course_name = None
         elif _is_schedule_line(line):
@@ -562,6 +739,7 @@ def _try_local_parse_schedule_import(text: str) -> dict | None:
                     "repeat_rule": {"type": "weekly"},
                     "is_all_day": False,
                     "confidence": 0.75,
+                    "server_name": course_name,
                 })
                 pending_course_name = None
         elif chapter_pattern.match(line) and current_server:
@@ -602,6 +780,14 @@ def _try_local_parse_schedule_import(text: str) -> dict | None:
 def _try_local_parse(text: str) -> dict | None:
     """Try local regex-based schedule parsing for common Chinese patterns."""
     text = text.strip()
+    # ── Chinese numeral normalization ──────────────────────────────
+    # Convert Chinese numeral times ("四点"→"4点", "十二点"→"12点")
+    # so the existing Arabic-digit regex patterns can match them.
+    cn_num = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    text = text.replace("十二", "12").replace("十一", "11").replace("十", "10")
+    for cn, n in cn_num.items():
+        text = re.sub(cn + r"(?=点|时)", str(n), text)
+    text = text.replace("点半", "点30分")
     today = datetime.now()
     result: dict = {
         "title": text,
@@ -615,6 +801,11 @@ def _try_local_parse(text: str) -> dict | None:
         "confidence": 0.0,
     }
 
+    weekday_map = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6}
+    weekday_full = {"周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4, "周六": 5, "周日": 6,
+                    "星期一": 0, "星期二": 1, "星期三": 2, "星期四": 3, "星期五": 4, "星期六": 5, "星期日": 6}
+
+    # ── Date parsing ──────────────────────────────────────────────
     if "明天" in text:
         result["date"] = (today + timedelta(days=1)).date().isoformat()
         result["confidence"] = 0.7
@@ -624,48 +815,186 @@ def _try_local_parse(text: str) -> dict | None:
     elif "今天" in text:
         result["date"] = today.date().isoformat()
         result["confidence"] = 0.7
-
-    time_patterns = [
-        r"(\d{1,2}):(\d{2})",
-        r"(\d{1,2})点(?:(\d{1,2})分)?",
-    ]
-    for pattern in time_patterns:
-        match = re.search(pattern, text)
-        if match:
-            hour = int(match.group(1))
-            if "下午" in text or "晚上" in text:
-                if hour < 12:
-                    hour += 12
+    elif re.search(r"下周[一二三四五六日]|下星期[一二三四五六日]", text):
+        # "下周三" / "下星期三" -> next Wednesday
+        m = re.search(r"下(?:星期|周)([一二三四五六日])", text)
+        if m:
+            cn = m.group(1)
+            num = weekday_map[cn]
+            days_ahead = num - today.weekday()
+            if days_ahead <= 0:
+                days_ahead += 7
+            result["date"] = (today + timedelta(days=days_ahead + 7)).date().isoformat()
+            result["day_of_week"] = num
+            result["confidence"] = 0.7
+    elif "这星期" in text or "本周" in text:
+        m = re.search(r"[这本](?:星期|周)([一二三四五六日])", text)
+        if m:
+            cn = m.group(1)
+            num = weekday_map[cn]
+            days_ahead = num - today.weekday()
+            if days_ahead < 0:
+                days_ahead += 7
+            result["date"] = (today + timedelta(days=days_ahead)).date().isoformat()
+            result["day_of_week"] = num
+            result["confidence"] = 0.7
+    elif re.search(r"下下个[一二三四五六日]|下下周[一二三四五六日]", text):
+        m = re.search(r"下下(?:星期|周)([一二三四五六日])", text)
+        if m:
+            cn = m.group(1)
+            num = weekday_map[cn]
+            days_ahead = num - today.weekday()
+            if days_ahead <= 0:
+                days_ahead += 7
+            result["date"] = (today + timedelta(days=days_ahead + 14)).date().isoformat()
+            result["day_of_week"] = num
+            result["confidence"] = 0.7
+    elif "下个月" in text:
+        m = re.search(r"下个月\s*(\d{1,2})\s*[号日]", text)
+        if m:
+            day_num = int(m.group(1))
+            next_month = today.replace(day=28) + timedelta(days=4)
+            next_month = next_month.replace(day=1)
             try:
-                minute = int(match.group(2)) if match.lastindex and match.lastindex >= 2 and match.group(2) else 0
-            except (TypeError, ValueError, IndexError):
-                minute = 0
-            result["start_time"] = f"{hour:02d}:{minute:02d}"
-            result["confidence"] = max(result["confidence"], 0.6)
-            break
+                result["date"] = next_month.replace(day=day_num).date().isoformat()
+                result["confidence"] = 0.7
+            except ValueError:
+                pass
+    elif "这个月" in text or "本月" in text:
+        m = re.search(r"[这本]月\s*(\d{1,2})\s*[号日]", text)
+        if m:
+            day_num = int(m.group(1))
+            try:
+                result["date"] = today.replace(day=day_num).date().isoformat()
+                result["confidence"] = 0.7
+            except ValueError:
+                pass
 
+    # ── Time parsing ──────────────────────────────────────────────
+    # Try to find explicit time ranges first: "2点-4点", "14:00-16:00"
+    range_match = re.search(r"(\d{1,2}):(\d{2})\s*[-~到至]\s*(\d{1,2}):(\d{2})", text)
+    if range_match:
+        sh, sm, eh, em = map(int, range_match.groups())
+        if "下午" in text or "晚上" in text:
+            if sh < 12:
+                sh += 12
+            if eh < 12:
+                eh += 12
+        result["start_time"] = f"{sh:02d}:{sm:02d}"
+        result["end_time"] = f"{eh:02d}:{em:02d}"
+        result["confidence"] = max(result["confidence"], 0.8)
+    else:
+        # Chinese style range: "2点到4点", "2点至4点"
+        range_match2 = re.search(r"(\d{1,2})点\s*[-~到至]\s*(\d{1,2})点", text)
+        if range_match2:
+            sh, eh = int(range_match2.group(1)), int(range_match2.group(2))
+            if "下午" in text or "晚上" in text:
+                if sh < 12:
+                    sh += 12
+                if eh < 12:
+                    eh += 12
+            result["start_time"] = f"{sh:02d}:00"
+            result["end_time"] = f"{eh:02d}:00"
+            result["confidence"] = max(result["confidence"], 0.8)
+        else:
+            # Single time
+            time_patterns = [
+                r"(\d{1,2}):(\d{2})",
+                r"(\d{1,2})点(?:(\d{1,2})分)?",
+            ]
+            for pattern in time_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    hour = int(match.group(1))
+                    minute = 0
+                    if match.lastindex and match.lastindex >= 2 and match.group(2):
+                        try:
+                            minute = int(match.group(2))
+                        except (TypeError, ValueError):
+                            minute = 0
+
+                    # Determine AM/PM context
+                    # Check if "下午"/"晚上" appears close to the time (within 5 chars before or after)
+                    time_pos = match.start()
+                    context = text[max(0, time_pos - 5):time_pos + 10]
+                    if "下午" in context or "晚上" in context:
+                        if hour < 12:
+                            hour += 12
+                    elif "上午" in context or "早上" in context:
+                        if hour == 12:
+                            hour = 0
+
+                    result["start_time"] = f"{hour:02d}:{minute:02d}"
+                    result["confidence"] = max(result["confidence"], 0.6)
+
+                    # Check for duration like "2小时", "1个半小时"
+                    duration_match = re.search(r"(\d{1,2})(?:个)?半?小时", text[match.end():])
+                    if duration_match:
+                        dur = int(duration_match.group(1))
+                        if "半" in text[match.end():match.end() + 15]:
+                            dur += 0.5
+                        end_dt = datetime.combine(today.date(), __import__("datetime").time(hour, minute)) + timedelta(hours=dur)
+                        result["end_time"] = end_dt.strftime("%H:%M")
+                        result["confidence"] = max(result["confidence"], 0.75)
+                    break
+
+    # ── Recurrence parsing ────────────────────────────────────────
     if "每天" in text or "每日" in text:
         result["repeat_rule"] = json.dumps({"type": "daily"})
         result["confidence"] = max(result["confidence"], 0.7)
     elif "每周" in text or re.search(r"周[一二三四五六日]", text):
-        result["repeat_rule"] = json.dumps({"type": "weekly"})
+        matched_days = []
+        # Try matching contiguous weekday chars first: "周一三五" -> [0,2,4]
+        m = re.search(r"周([一二三四五六日]+)", text)
+        if m:
+            for cn in m.group(1):
+                if cn in weekday_map and weekday_map[cn] not in matched_days:
+                    matched_days.append(weekday_map[cn])
+        else:
+            # Fallback: scan individually
+            for cn, num in weekday_map.items():
+                if f"周{cn}" in text and num not in matched_days:
+                    matched_days.append(num)
+        if matched_days:
+            result["day_of_week"] = matched_days[0]
+            if len(matched_days) > 1:
+                result["repeat_rule"] = json.dumps({"type": "weekly", "days": matched_days})
+            else:
+                result["repeat_rule"] = json.dumps({"type": "weekly"})
+            result["confidence"] = max(result["confidence"], 0.7)
+    elif "工作日" in text:
+        result["repeat_rule"] = json.dumps({"type": "weekly", "days": [0, 1, 2, 3, 4]})
         result["confidence"] = max(result["confidence"], 0.7)
-        weekday_map = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6}
-        for cn, num in weekday_map.items():
-            if f"周{cn}" in text:
-                result["day_of_week"] = num
-                break
 
+    # ── All-day parsing ───────────────────────────────────────────
     if "全天" in text or "整天" in text:
         result["is_all_day"] = True
         result["start_time"] = "00:00"
         result["end_time"] = "23:59"
 
-    # Clean title
+    # ── Title extraction ──────────────────────────────────────────
     title = text
-    for pat in [r"(明天|今天|后天)", r"\d{1,2}:\d{2}", r"\d{1,2}点(\d{1,2}分)?",
-                r"(上午|下午|早上|晚上|每天|每周)"]:
-        title = re.sub(pat, "", title).strip()
+    # Remove temporal phrases (using word boundaries where possible)
+    removal_patterns = [
+        r"明天|今天|后天",
+        r"下周[一二三四五六日]|下星期[一二三四五六日]|下下个[一二三四五六日]",
+        r"[这本]月\s*\d{1,2}\s*[号日]",
+        r"下个月\s*\d{1,2}\s*[号日]",
+        r"\d{1,2}:\d{2}\s*[-~到至]\s*\d{1,2}:\d{2}",
+        r"\d{1,2}点\s*[-~到至]\s*\d{1,2}点",
+        r"\d{1,2}:\d{2}",
+        r"\d{1,2}点(?:\d{1,2}分)?",
+        r"\d{1,2}(?:个)?半?小时",
+        r"上午|下午|早上|晚上|凌晨|中午",
+        r"每天|每日|每周|工作日",
+        r"全天|整天",
+    ]
+    for pat in removal_patterns:
+        title = re.sub(pat, "", title)
+    # Clean up extra spaces and punctuation
+    title = re.sub(r"[\s\-~到至]+", " ", title).strip()
+    # Remove leading/trailing punctuation
+    title = title.strip("，,。.;:!?！？")
     if title:
         result["title"] = title
 

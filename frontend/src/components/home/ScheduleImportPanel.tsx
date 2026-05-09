@@ -27,6 +27,7 @@ interface EditableSchedule {
   end_time: string;
   day_of_week: number | null;
   repeat_rule: string | null;
+  server_name?: string;
 }
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -126,6 +127,7 @@ export default function ScheduleImportPanel() {
         end_time: s.end_time || "09:35",
         day_of_week: s.day_of_week ?? null,
         repeat_rule: s.repeat_rule || null,
+        server_name: s.server_name,
       }));
 
       setServers(srvs);
@@ -238,6 +240,10 @@ export default function ScheduleImportPanel() {
     let sCount = 0, cCount = 0, nCount = 0, schCount = 0;
 
     try {
+      // Build server_name → {server_id, first_channel_id} mapping from created servers
+      const serverIdMap: Record<string, number> = {};
+      const channelIdMap: Record<string, number> = {};
+
       for (const server of servers) {
         if (!selectedServers[server.id]) continue;
         const srvRes = await serverApi.create({ name: server.name });
@@ -245,6 +251,9 @@ export default function ScheduleImportPanel() {
         const serverId = srvData?.id;
         if (!serverId) continue;
         sCount++;
+
+        // Store mapping by server name for schedule association
+        serverIdMap[server.name] = serverId;
 
         for (const channel of server.channels) {
           const chKey = `${server.id}/${channel.id}`;
@@ -255,6 +264,11 @@ export default function ScheduleImportPanel() {
           if (!channelId) continue;
           cCount++;
 
+          // Store first channel id for each server
+          if (!channelIdMap[server.name]) {
+            channelIdMap[server.name] = channelId;
+          }
+
           for (const note of channel.notes) {
             await noteApi.create({ channel_id: channelId, content: note.content });
             nCount++;
@@ -264,20 +278,43 @@ export default function ScheduleImportPanel() {
 
       for (const sch of schedules) {
         if (!selectedSchedules[sch.id]) continue;
+
+        // Try to find server_id and channel_id from the mapping
+        let schServerId: number | undefined;
+        let schChannelId: number | undefined;
+
+        if (sch.server_name && serverIdMap[sch.server_name]) {
+          schServerId = serverIdMap[sch.server_name];
+          schChannelId = channelIdMap[sch.server_name];
+        }
+
+        // Normalize repeat_rule: Kimi returns JSON object, backend expects JSON string
+        let repeatRuleStr: string | undefined = undefined;
+        if (sch.repeat_rule) {
+          repeatRuleStr = typeof sch.repeat_rule === "string"
+            ? sch.repeat_rule
+            : JSON.stringify(sch.repeat_rule);
+        } else if (sch.day_of_week !== null) {
+          repeatRuleStr = '{"type":"weekly"}';
+        }
+
         await scheduleService.createSchedule({
           title: sch.title,
           start_time: sch.start_time,
           end_time: sch.end_time || undefined,
           day_of_week: sch.day_of_week ?? undefined,
-          repeat_rule: sch.day_of_week !== null ? '{"type":"weekly"}' : undefined,
+          repeat_rule: repeatRuleStr,
           is_all_day: false,
           color: "#5865f2",
+          server_id: schServerId,
+          channel_id: schChannelId,
         });
         schCount++;
       }
 
       setCreatedCount({ servers: sCount, channels: cCount, notes: nCount, schedules: schCount });
       await fetchServers();
+      // Auto-clear after 15s so user has time to see the success message
       setTimeout(() => {
         setHasResult(false);
         setServers([]);
@@ -287,9 +324,11 @@ export default function ScheduleImportPanel() {
         setImageFile(null);
         setImagePreview(null);
         setCreatedCount({ servers: 0, channels: 0, notes: 0, schedules: 0 });
-      }, 3000);
-    } catch (e) {
-      setError("创建失败，请重试");
+      }, 15000);
+    } catch (e: any) {
+      console.error("[ScheduleImport] Create failed:", e);
+      const msg = e?.response?.data?.message || e?.message || "创建失败，请重试";
+      setError(`创建失败: ${msg}`);
     } finally {
       setIsCreating(false);
     }

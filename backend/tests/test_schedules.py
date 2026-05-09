@@ -268,3 +268,48 @@ async def test_parse_natural_language_all_day(client, auth_headers):
     assert response.status_code == 200
     result = response.json()
     assert "title" in result
+    assert result["is_all_day"] is True
+
+
+@pytest.mark.asyncio
+async def test_parse_natural_language_duration(client, auth_headers):
+    """测试解析带时长的日程"""
+    response = await client.post(
+        "/api/schedules/parse",
+        json={"text": "下午3点开始的2小时课"},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert "title" in result
+    assert result["start_time"] == "15:00:00"
+    assert result["end_time"] == "17:00:00"
+
+
+@pytest.mark.asyncio
+async def test_parse_natural_language_next_month(client, auth_headers):
+    """测试解析下个月日期"""
+    response = await client.post(
+        "/api/schedules/parse",
+        json={"text": "下个月1号交报告"},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert "title" in result
+    assert result["date"] is not None
+
+
+@pytest.mark.asyncio
+async def test_parse_natural_language_multi_weekday(client, auth_headers):
+    """测试解析多星期重复"""
+    response = await client.post(
+        "/api/schedules/parse",
+        json={"text": "每周一三五晚上7点健身"},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert "title" in result
+    assert result["repeat_rule"] is not None
+    assert result["day_of_week"] == 0

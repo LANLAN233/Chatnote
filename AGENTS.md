@@ -2,7 +2,7 @@
 
 ## Project Status
 
-Graduation thesis (毕设) project. Phase 1 (项目骨架 + 基础 CRUD) is **complete**.
+Graduation thesis (毕设) project. All 15 Phases are **complete**.
 
 - `backend/` — FastAPI backend with auth, Server/Channel/Note CRUD (93 tests passing)
 - `frontend/` — React 19 + TypeScript + TailwindCSS frontend with Discord-style UI (14 tests passing)
@@ -20,13 +20,13 @@ Graduation thesis (毕设) project. Phase 1 (项目骨架 + 基础 CRUD) is **co
 - ✅ Phase 7: 控制台会话 + 导航重构
 - ✅ Phase 8: 主页概要完善 + Inbox + 每日总结
 - ✅ Phase 9: 频道体验修复（AI 发送逻辑、时区、复制、编辑 UI）
-- 🔶 Phase 10: 文件系统与附件重构（ServerFilesModal 已实装，拖拽上传已完成，仅 Resources 入口待完善）
+- ✅ Phase 10: 文件系统与附件重构（ServerFilesModal + 拖拽上传 + Resources 入口）
 - ✅ Phase 11: @/# 指令联想与输入框统一
-- ⬜ Phase 11a: 控制台引用查询与内容导入（@# 引用查询 + 内容选取导入）
+- ✅ Phase 11a: 控制台引用查询与内容导入（@# 引用查询 + 内容选取导入）
 - ✅ Phase 12: 消息交互增强（右键菜单、钉选、引用、Tag、TTS）
-- ⬜ Phase 13: 讨论串（Thread）系统
-- ⬜ Phase 14: 多AI编排优化（Inbox/每日总结/引用查询多Agent流水线）
-- ⬜ Phase 15: agno 工具生态接入（DuckDuckGo/Calculator/Python/Website Tools）
+- ✅ Phase 13: 讨论串（Thread）系统
+- ✅ Phase 14: 多AI编排优化（Inbox/每日总结/引用查询多Agent流水线）
+- ✅ Phase 15: agno 工具生态接入（DuckDuckGo/Calculator/Python/Website Tools）
 
 ## Planned Tech Stack
 
@@ -56,7 +56,7 @@ Graduation thesis (毕设) project. Phase 1 (项目骨架 + 基础 CRUD) is **co
 ## Development Workflow
 
 1. **`docs/` is the source of truth.** Always follow `docs/requirements.md` and `docs/development-plan.md` when building. If code conflicts with docs, trust docs.
-2. **One Phase at a time.** Follow the Phase order in `docs/development-plan.md` (Phase 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13). Never jump ahead or work on multiple Phases in one session.
+2. **One Phase at a time.** Follow the Phase order in `docs/development-plan.md` (Phase 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15). Never jump ahead or work on multiple Phases in one session.
 3. **Per-Phase lifecycle:**
    - Complete all tasks listed for the current Phase
    - Run unit tests (pytest for backend, Vitest for frontend) — every Phase must pass

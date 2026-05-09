@@ -9,6 +9,7 @@ __pycache__/
 .venv/
 chatnote.db
 .env
+/backend/uploads/
 
 # Frontend
 frontend/node_modules/
@@ -20,6 +21,18 @@ frontend/.vite/
 .idea/
 *.swp
 *.swo
+
+# Tools config
+/.opencode/
+/.playwright-mcp/
 /backend/uploads/temp
 /backend/data/
 /backend/.encryption_key
+
+# Archive
+/_archive/
+
+# Test artifacts
+/frontend/test-results/
+/frontend/e2e/screenshots/
+/frontend/e2e/.auth/

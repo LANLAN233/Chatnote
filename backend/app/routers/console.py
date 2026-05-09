@@ -599,6 +599,7 @@ async def console_execute(
                 "error",
                 db,
             )
+            ws_manager.cleanup_operation(operation_id)
             return ApiResponse(
                 success=False,
                 data={"type": "error", "content": msg.content, "session_id": session.id, "operation_id": operation_id},
@@ -618,16 +619,19 @@ async def console_execute(
             duration_ms=int((time.time() - t_skill) * 1000)
         ))
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
+        ws_manager.cleanup_operation(operation_id)
         return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
     if parsed.is_command and parsed.command:
         if parsed.command == "clear":
             await _clear_session_messages(session.id, db)
             await _save_message(session.id, "system", "Session cleared.", "clear", db)
+            ws_manager.cleanup_operation(operation_id)
             return ApiResponse(success=True, data={"type": "clear", "content": "Session cleared.", "session_id": session.id, "operation_id": operation_id})
 
         result = await execute_command(parsed.command, parsed.command_args, db, current_user.id)
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
+        ws_manager.cleanup_operation(operation_id)
         return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
     # --- $query Skill Routing (@Server #Channel question) ---
@@ -656,6 +660,7 @@ async def console_execute(
                     query_result.get("type", "text"),
                     db,
                 )
+                ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=True,
                     data={**query_result, "session_id": session.id, "routed_skill": "query", "operation_id": operation_id},
@@ -676,6 +681,7 @@ async def console_execute(
                     message="Context loaded successfully",
                     duration_ms=int((time.time() - t_ctx) * 1000)
                 ))
+                ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=True,
                     data={**context_result["data"], "session_id": session.id, "type": "context_loaded", "content": context_result["content"], "operation_id": operation_id},
@@ -688,6 +694,7 @@ async def console_execute(
                 ))
                 # Server not found error
                 await _save_message(session.id, "assistant", context_result["content"], "error", db)
+                ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=False,
                     data={"type": "error", "content": context_result["content"], "session_id": session.id, "operation_id": operation_id},
@@ -740,6 +747,7 @@ async def console_execute(
                     skill_result.get("type", "text"),
                     db,
                 )
+                ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=True,
                     data={
@@ -790,6 +798,7 @@ async def console_execute(
     else:
         note_result.data = {"session_id": session.id, "operation_id": operation_id}
 
+    ws_manager.cleanup_operation(operation_id)
     return note_result
 
 
@@ -843,6 +852,7 @@ async def server_console_execute(
                 "error",
                 db,
             )
+            ws_manager.cleanup_operation(operation_id)
             return ApiResponse(
                 success=False,
                 data={"type": "error", "content": msg.content, "session_id": session.id, "operation_id": operation_id},
@@ -867,12 +877,14 @@ async def server_console_execute(
             duration_ms=int((time.time() - t_skill) * 1000)
         ))
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
+        ws_manager.cleanup_operation(operation_id)
         return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
     if parsed.is_command and parsed.command:
         if parsed.command == "clear":
             await _clear_session_messages(session.id, db)
             await _save_message(session.id, "system", "Session cleared.", "clear", db)
+            ws_manager.cleanup_operation(operation_id)
             return ApiResponse(success=True, data={"type": "clear", "content": "Session cleared.", "session_id": session.id, "operation_id": operation_id})
 
         result = await execute_command(
@@ -880,6 +892,7 @@ async def server_console_execute(
             server_context={"server_id": server_id, "server_name": server.name}
         )
         await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
+        ws_manager.cleanup_operation(operation_id)
         return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
     # --- $query Skill Routing (#Channel question in server context) ---
@@ -932,6 +945,7 @@ async def server_console_execute(
                 query_result.get("type", "text"),
                 db,
             )
+            ws_manager.cleanup_operation(operation_id)
             return ApiResponse(
                 success=True,
                 data={**query_result, "session_id": session.id, "routed_skill": "query", "operation_id": operation_id},
@@ -955,6 +969,7 @@ async def server_console_execute(
                     message="Context loaded successfully",
                     duration_ms=int((time.time() - t_ctx) * 1000)
                 ))
+                ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=True,
                     data={**context_result["data"], "session_id": session.id, "type": "context_loaded", "content": context_result["content"], "operation_id": operation_id},
@@ -966,6 +981,7 @@ async def server_console_execute(
                     duration_ms=int((time.time() - t_ctx) * 1000)
                 ))
                 await _save_message(session.id, "assistant", context_result["content"], "error", db)
+                ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=False,
                     data={"type": "error", "content": context_result["content"], "session_id": session.id, "operation_id": operation_id},
@@ -1018,6 +1034,7 @@ async def server_console_execute(
                     skill_result.get("type", "text"),
                     db,
                 )
+                ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=True,
                     data={
@@ -1055,6 +1072,7 @@ async def server_console_execute(
     else:
         note_result.data = {"session_id": session.id, "operation_id": operation_id}
 
+    ws_manager.cleanup_operation(operation_id)
     return note_result
 
 

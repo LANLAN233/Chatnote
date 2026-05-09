@@ -1,13 +1,14 @@
-import { LayoutDashboard, Terminal, Upload, Inbox, History } from "lucide-react";
+import { LayoutDashboard, Terminal, Upload, Inbox, History, Sparkles } from "lucide-react";
 
 interface HomeSidebarProps {
-  activeTab: "overview" | "console" | "import" | "inbox" | "recent";
-  onTabChange: (tab: "overview" | "console" | "import" | "inbox" | "recent") => void;
+  activeTab: "overview" | "console" | "import" | "inbox" | "recent" | "daily-summary";
+  onTabChange: (tab: "overview" | "console" | "import" | "inbox" | "recent" | "daily-summary") => void;
   inboxBadge?: number;
 }
 
 const tabs = [
   { id: "overview" as const, label: "概要", Icon: LayoutDashboard },
+  { id: "daily-summary" as const, label: "每日总结", Icon: Sparkles },
   { id: "recent" as const, label: "最近活动", Icon: History },
   { id: "inbox" as const, label: "待分类", Icon: Inbox },
   { id: "console" as const, label: "总控制台", Icon: Terminal },

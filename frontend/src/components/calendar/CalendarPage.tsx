@@ -17,6 +17,7 @@ export default function CalendarPage() {
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     loadServers();
@@ -148,6 +149,7 @@ export default function CalendarPage() {
             onDateChange={setCurrentDate}
             servers={servers}
             channels={channels}
+            refreshTrigger={refreshKey}
           />
         ) : (
           <MonthView
@@ -167,7 +169,10 @@ export default function CalendarPage() {
         initialDate={selectedDate}
         servers={servers}
         channels={channels}
-        onSuccess={loadSchedules}
+        onSuccess={() => {
+          loadSchedules();
+          setRefreshKey((k) => k + 1);
+        }}
       />
     </div>
   );

@@ -251,3 +251,59 @@ async def test_console_execute_at_server_no_channel_routes_to_query(
     assert data["data"].get("routed_skill") == "query", (
         "@Server with question should route to query, even without #Channel"
     )
+
+
+# ===========================================================================
+# Error-path cleanup tests
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_failed_query_still_cleans_up(
+    client: AsyncClient, auth_headers: dict, db_session,
+):
+    """cleanup_operation must be called even when _dispatch_skill returns an error.
+
+    Verifies that the $query routing path (via _route_query_skill → _dispatch_skill)
+    still calls ws_manager.cleanup_operation(operation_id) when the skill produces
+    an error result, preventing memory leaks in _operation_events.
+    """
+    import uuid
+
+    server = Server(user_id=1, name="FailedQueryServer")
+    db_session.add(server)
+    await db_session.flush()
+
+    with patch(
+        "app.routers.console.ws_manager.cleanup_operation"
+    ) as mock_cleanup:
+        with patch(
+            "app.routers.console._dispatch_skill", new_callable=AsyncMock
+        ) as mock_dispatch:
+            # Simulate an internal skill error (as caught by _dispatch_skill's try/except)
+            mock_dispatch.return_value = {
+                "type": "error",
+                "content": "Skill $query failed: Simulated retrieval failure.",
+            }
+
+            response = await client.post(
+                "/api/console/execute",
+                json={
+                    "input": "@FailedQueryServer Why do queries fail?",
+                    "ai_enabled": True,
+                },
+                headers=auth_headers,
+            )
+
+    assert response.status_code == 200
+    data = response.json()
+    # Error is embedded in content/dict, not an HTTP 500
+    assert data["success"] is True
+    assert "routed_skill" in data["data"]
+    assert data["data"]["routed_skill"] == "query"
+
+    # Cleanup must be called even on the error path
+    mock_cleanup.assert_called_once()
+    args, _ = mock_cleanup.call_args
+    assert len(args) == 1
+    uuid.UUID(args[0])  # must be a valid UUID operation_id

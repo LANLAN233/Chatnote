@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -24,6 +24,7 @@ class User(Base):
 
     servers: Mapped[list["Server"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     api_keys: Mapped[list["UserApiKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    daily_summaries: Mapped[list["DailySummary"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class UserApiKey(Base):
@@ -202,3 +203,22 @@ class InboxItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user: Mapped["User"] = relationship()
+
+
+class DailySummary(Base):
+    __tablename__ = "daily_summaries"
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_daily_summaries_user_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    keywords: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    total_notes: Mapped[int] = mapped_column(Integer, default=0)
+    highlight_note_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stages: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    is_edited: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user: Mapped["User"] = relationship(back_populates="daily_summaries")

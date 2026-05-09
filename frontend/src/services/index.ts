@@ -9,6 +9,7 @@ import type {
   ConsoleImportResult,
   ConsoleResult,
   ConsoleSession,
+  DailySummaryListItem,
   DailySummaryResponse,
   InboxItem,
   InboxItemArchiveRequest,
@@ -127,8 +128,37 @@ export const consoleSessionApi = {
 
 export const statsApi = {
   get: () => api.get<ApiResponse<StatsData>>("/stats"),
-  getDailySummary: (date?: string) =>
-    api.get<ApiResponse<DailySummaryResponse>>("/daily-summary", { params: date ? { date } : undefined }),
+  getDailySummary: (date?: string, signal?: AbortSignal) =>
+    api.get<ApiResponse<DailySummaryResponse>>("/daily-summary", { params: date ? { date } : undefined, signal }),
+};
+
+export const dailySummaryApi = {
+  getHistory: (from: string, to: string) =>
+    api.get<ApiResponse<DailySummaryListItem[]>>("/daily-summary/history", {
+      params: { from_date: from, to_date: to },
+    }),
+
+  update: (date: string, summary: string) =>
+    api.put<ApiResponse<DailySummaryResponse>>("/daily-summary", { summary }, {
+      params: { date },
+    }),
+
+  regenerate: (date: string) =>
+    api.post<ApiResponse<DailySummaryResponse>>("/daily-summary/regenerate", null, {
+      params: { date },
+    }),
+
+  exportMarkdown: (date: string) =>
+    api.get("/daily-summary/export/markdown", {
+      params: { date },
+      responseType: "blob",
+    }),
+
+  exportPdf: (date: string) =>
+    api.get("/daily-summary/export/pdf", {
+      params: { date },
+      responseType: "blob",
+    }),
 };
 
 export const inboxApi = {
@@ -173,3 +203,14 @@ export { exportApi } from "./exportApi";
 export { settingsApi } from "./settingsApi";
 export { scheduleApi } from "./scheduleApi";
 export { default as wsService } from "./websocket";
+
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}

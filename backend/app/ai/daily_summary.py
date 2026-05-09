@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import logging
 import time
 from datetime import date, timedelta
@@ -114,6 +115,7 @@ async def generate_daily_summary(
             "keywords": [],
             "total_notes": 0,
             "highlight_note_id": None,
+            "is_fallback": True,
         }
 
     # Build context for the agent
@@ -126,12 +128,18 @@ async def generate_daily_summary(
         model = await get_model_for_user(user_id, db)
 
     if model is None:
-        # Fallback without LLM
+        # Fallback without LLM — no API key configured
+        logger.warning(
+            "No AI model available for user %d (no API key configured). "
+            "Returning fallback summary for %s.",
+            user_id, target_date.isoformat(),
+        )
         return {
-            "summary": f"You recorded {len(notes)} notes on {target_date.isoformat()}. Keep up the good work!",
+            "summary": f"⚠️ AI 总结未生成：未配置 API 密钥。\n\n你在 {target_date.isoformat()} 记录了 {len(notes)} 条笔记。请在设置中配置 API 密钥以启用 AI 每日总结。",
             "keywords": [],
             "total_notes": len(notes),
             "highlight_note_id": notes[0].id if notes else None,
+            "is_fallback": True,
         }
 
     try:
@@ -144,23 +152,98 @@ async def generate_daily_summary(
         )
 
         result = response.content
-        if not isinstance(result, DailySummaryResult):
-            result = DailySummaryResult.model_validate(result)
 
-        return {
-            "summary": result.summary,
-            "keywords": [k.model_dump() for k in result.keywords],
-            "total_notes": result.total_notes,
-            "highlight_note_id": result.highlight_note_id,
-        }
+        # Structured output succeeded: agno returned a DailySummaryResult
+        if isinstance(result, DailySummaryResult):
+            return {
+                "summary": result.summary,
+                "keywords": [k.model_dump() for k in result.keywords],
+                "total_notes": result.total_notes,
+                "highlight_note_id": result.highlight_note_id,
+                "is_fallback": False,
+            }
+
+        # Model returned a dict: try to validate
+        if isinstance(result, dict):
+            try:
+                parsed = DailySummaryResult.model_validate(result)
+                return {
+                    "summary": parsed.summary,
+                    "keywords": [k.model_dump() for k in parsed.keywords],
+                    "total_notes": parsed.total_notes,
+                    "highlight_note_id": parsed.highlight_note_id,
+                    "is_fallback": False,
+                }
+            except Exception:
+                pass
+
+        # Model returned raw text (error or plain summary): use it directly
+        raw_text = str(result) if result else ""
+        if raw_text and not raw_text.startswith("Error"):
+            logger.info("Model returned plain text (not structured), using raw text as summary")
+            return {
+                "summary": raw_text[:2000],
+                "keywords": [],
+                "total_notes": len(notes),
+                "highlight_note_id": notes[0].id if notes else None,
+                "is_fallback": True,
+            }
+        else:
+            # Actual error from provider — raise to trigger fallback
+            raise RuntimeError(f"Model returned error: {raw_text[:300]}")
+
     except Exception as e:
-        logger.warning("Daily summary generation failed: %s, using fallback", e)
+        logger.warning("Daily summary generation failed for user %d: %s, using fallback", user_id, e)
         return {
-            "summary": f"You recorded {len(notes)} notes on {target_date.isoformat()}. Keep up the good work!",
+            "summary": f"⚠️ AI 总结生成失败：{str(e)[:200]}\n\n你在 {target_date.isoformat()} 记录了 {len(notes)} 条笔记。请稍后重试或检查 AI 服务状态。",
             "keywords": [],
             "total_notes": len(notes),
             "highlight_note_id": notes[0].id if notes else None,
+            "is_fallback": True,
         }
+
+
+# ── JSON parsing helper ─────────────────────────────────────────────────────
+
+
+def _parse_model_response(content: Any, schema_cls: type) -> Any:
+    """Robustly parse a model response into a Pydantic schema.
+
+    Handles three cases:
+    1. Already the correct type → return as-is
+    2. A dict → validate via schema_cls
+    3. A string → try to extract JSON, then validate
+    """
+    if isinstance(content, schema_cls):
+        return content
+
+    if isinstance(content, dict):
+        return schema_cls.model_validate(content)
+
+    if isinstance(content, str):
+        # Try direct JSON parse first
+        try:
+            data = json.loads(content)
+            if isinstance(data, dict):
+                return schema_cls.model_validate(data)
+        except (json.JSONDecodeError, Exception):
+            pass
+
+        # Try to extract JSON block from markdown/text response
+        # Look for ```json ... ``` or bare { ... }
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if not json_match:
+            json_match = re.search(r'(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})', content, re.DOTALL)
+
+        if json_match:
+            try:
+                data = json.loads(json_match.group(1))
+                if isinstance(data, dict):
+                    return schema_cls.model_validate(data)
+            except (json.JSONDecodeError, Exception):
+                pass
+
+    raise ValueError(f"Could not parse response into {schema_cls.__name__}")
 
 
 # ── Pipeline agent factories ────────────────────────────────────────────────
@@ -181,9 +264,15 @@ def _create_extraction_agent(model: OpenAIChat) -> Agent:
 - Identify the core topics the user studied
 - Report the total number of notes you scanned
 - If notes are sparse, still extract whatever concepts you can find
-- Respond in the same language as the notes""",
-        output_schema=ExtractedKnowledge,
-        structured_outputs=True,
+- Respond in the same language as the notes
+
+## Output Format
+You MUST respond with a valid JSON object matching this schema:
+{
+  "concepts": ["concept 1", "concept 2", ...],
+  "total_notes_scanned": N
+}
+Wrap your JSON in ```json ... ``` code block. Do not include any other text outside the code block.""",
     )
 
 
@@ -205,9 +294,15 @@ You will receive the extracted knowledge points from Stage 1 of the pipeline. Yo
 - Highlight the most impactful note — the one that represents the core learning of the day
 - If the extracted knowledge is sparse or unclear, still produce a helpful summary
 - Respond in the same language as the notes
-- If no extracted knowledge is provided, indicate that clearly""",
-        output_schema=StructuredSummary,
-        structured_outputs=True,
+- If no extracted knowledge is provided, indicate that clearly
+
+## Output Format
+You MUST respond with a valid JSON object matching this schema:
+{
+  "summary": "your concise summary here (max 300 chars)",
+  "highlight_note_id": N or null
+}
+Wrap your JSON in ```json ... ``` code block. Do not include any other text.""",
     )
 
 
@@ -231,9 +326,17 @@ Your task:
 - Extract specific, meaningful keywords (not generic words like "study" or "note")
 - Each keyword must reference the note IDs it appears in
 - Keywords should be useful for future search and retrieval
-- Respond in the same language as the notes""",
-        output_schema=KeywordMapping,
-        structured_outputs=True,
+- Respond in the same language as the notes
+
+## Output Format
+You MUST respond with a valid JSON object matching this schema:
+{
+  "keywords": [
+    {"keyword": "keyword1", "note_ids": [1, 2]},
+    {"keyword": "keyword2", "note_ids": [3]}
+  ]
+}
+Wrap your JSON in ```json ... ``` code block. Do not include any other text.""",
     )
 
 
@@ -277,6 +380,7 @@ async def generate_daily_summary_pipeline(
             "total_notes": 0,
             "highlight_note_id": None,
             "stages": [],
+            "is_fallback": True,
         }
 
     # Build note context for agents
@@ -318,10 +422,7 @@ async def generate_daily_summary_pipeline(
                 ),
                 timeout=60.0,
             )
-            raw1 = response1.content
-            if not isinstance(raw1, ExtractedKnowledge):
-                raw1 = ExtractedKnowledge.model_validate(raw1)
-            extracted = raw1
+            extracted = _parse_model_response(response1.content, ExtractedKnowledge)
             extraction_duration_ms = int((time.time() - t0) * 1000)
             stages.append({
                 "name": "extraction",
@@ -384,10 +485,13 @@ async def generate_daily_summary_pipeline(
                 ),
                 timeout=60.0,
             )
-            raw2 = response2.content
-            if not isinstance(raw2, StructuredSummary):
-                raw2 = StructuredSummary.model_validate(raw2)
-            summary_result = raw2
+            try:
+                summary_result = _parse_model_response(response2.content, StructuredSummary)
+            except ValueError:
+                # Parsing failed — use raw model output as summary directly
+                raw_text = str(response2.content)[:2000] if response2.content else ""
+                logger.warning("Pipeline Stage 2 parse failed, using raw text as summary (%d chars)", len(raw_text))
+                summary_result = StructuredSummary(summary=raw_text, highlight_note_id=None)
             summary_duration_ms = int((time.time() - t1) * 1000)
             stages.append({
                 "name": "summary",
@@ -451,14 +555,16 @@ async def generate_daily_summary_pipeline(
                 ),
                 timeout=60.0,
             )
-            raw3 = response3.content
-            if not isinstance(raw3, KeywordMapping):
-                raw3 = KeywordMapping.model_validate(raw3)
-            keyword_mapping = raw3
+            try:
+                keyword_mapping = _parse_model_response(response3.content, KeywordMapping)
+            except ValueError:
+                # Parsing failed — continue without keywords
+                logger.warning("Pipeline Stage 3 parse failed, using empty keywords")
+                keyword_mapping = None
             keywords_duration_ms = int((time.time() - t2) * 1000)
             stages.append({
                 "name": "keywords",
-                "status": "completed",
+                "status": "completed" if keyword_mapping else "partial",
                 "duration_ms": keywords_duration_ms,
             })
             # WS: emit keywords completed
@@ -483,7 +589,7 @@ async def generate_daily_summary_pipeline(
                 "duration_ms": int((time.time() - t2) * 1000),
                 "error": str(stage_err),
             })
-            raise
+            # Don't raise — keywords are optional, continue with what we have
 
         return {
             "summary": summary_result.summary if summary_result else "",
@@ -491,11 +597,12 @@ async def generate_daily_summary_pipeline(
             "total_notes": len(notes),
             "highlight_note_id": summary_result.highlight_note_id if summary_result else None,
             "stages": stages,
+            "is_fallback": False,
         }
 
-    except Exception:
+    except Exception as e:
         # Fallback to single-model generate_daily_summary
-        logger.info("Pipeline failed, falling back to single-model daily summary")
+        logger.info("Pipeline failed for user %d, falling back to single-model daily summary. Reason: %s", user_id, e)
         fallback = await generate_daily_summary(target_date, user_id, db)  # type: ignore[arg-type]
         fallback["stages"] = stages
         return fallback

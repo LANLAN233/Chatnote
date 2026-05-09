@@ -1,9 +1,12 @@
+import json
 import logging
+from datetime import date, time
 
 from agno.agent import Agent
 
 from app.ai.schedule import parse_natural_language_schedule
 from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
+from app.models.models import Schedule
 
 logger = logging.getLogger(__name__)
 
@@ -72,20 +75,103 @@ Output: "Complete React project (next Friday)"""
 
 class ScheduleSkill(BaseSkill):
     name = "schedule"
-    description = "AI 智能解析日程"
+    description = "AI 智能解析日程并创建"
 
     async def execute(self, args: str, context: SkillContext) -> SkillResult:
         if not args.strip():
-            return SkillResult(type="output", content="$schedule: Describe your schedule, e.g. 'tomorrow 2pm math class'")
+            return SkillResult(type="output", content="$schedule: Describe your schedule, e.g. '$schedule 明天下午2点高数课'")
 
         try:
             parsed = await parse_natural_language_schedule(args, context.model)
-            title = parsed.get("title", "Schedule")
-            start = parsed.get("start_time", "?")
+            title = parsed.get("title") or args[:50]
+            start_str = parsed.get("start_time")
+            end_str = parsed.get("end_time")
+            date_str = parsed.get("date")
+            day_of_week = parsed.get("day_of_week")
+            repeat_rule_raw = parsed.get("repeat_rule")
+            is_all_day = parsed.get("is_all_day", False)
+            description = parsed.get("description")
+            confidence = parsed.get("confidence", 0.5)
+
+            if not start_str:
+                return SkillResult(
+                    type="error",
+                    content=f"无法从输入中解析时间，请提供更明确的时间描述\n解析结果: {parsed.get('title', args)}",
+                )
+
+            # Parse time strings
+            try:
+                start_time = time.fromisoformat(start_str) if ":" in start_str else time(9, 0)
+            except (ValueError, TypeError):
+                start_time = time(9, 0)
+            try:
+                end_time = time.fromisoformat(end_str) if end_str and ":" in (end_str or "") else None
+            except (ValueError, TypeError):
+                end_time = None
+
+            schedule_date = None
+            if date_str:
+                try:
+                    schedule_date = date.fromisoformat(date_str)
+                except (ValueError, TypeError):
+                    pass
+
+            # Normalize repeat_rule
+            repeat_rule = None
+            if repeat_rule_raw:
+                if isinstance(repeat_rule_raw, dict):
+                    repeat_rule = json.dumps(repeat_rule_raw, ensure_ascii=False)
+                elif isinstance(repeat_rule_raw, str):
+                    try:
+                        json.loads(repeat_rule_raw)
+                        repeat_rule = repeat_rule_raw
+                    except json.JSONDecodeError:
+                        pass
+
+            # Create schedule in database
+            schedule = Schedule(
+                user_id=context.user_id,
+                title=title,
+                description=description,
+                start_time=start_time,
+                end_time=end_time,
+                date=schedule_date,
+                day_of_week=day_of_week,
+                repeat_rule=repeat_rule,
+                is_all_day=is_all_day,
+            )
+            context.db.add(schedule)
+            await context.db.flush()
+            await context.db.refresh(schedule)
+
+            # Build response message
+            date_display = schedule_date.strftime("%Y-%m-%d") if schedule_date else "未指定日期"
+            time_display = start_str
+            if end_str:
+                time_display += f" - {end_str}"
+            if repeat_rule:
+                try:
+                    rr = json.loads(repeat_rule)
+                    rr_type = rr.get("type", "")
+                    if rr_type == "daily":
+                        time_display += " (每日)"
+                    elif rr_type == "weekly":
+                        time_display += " (每周)"
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             return SkillResult(
                 type="output",
-                content=f"📅 $schedule: {title} at {start}",
+                content=f"📅 日程已创建: {title}\n日期: {date_display}  时间: {time_display}",
+                data={
+                    "schedule_id": schedule.id,
+                    "title": title,
+                    "start_time": start_str,
+                    "end_time": end_str,
+                    "date": date_str,
+                    "confidence": confidence,
+                },
             )
         except Exception as e:
             logger.error("Schedule skill failed: %s", e)
-            return SkillResult(type="error", content=f"Schedule parse failed: {e}")
+            return SkillResult(type="error", content=f"日程解析失败: {e}")

@@ -21,6 +21,7 @@ vi.mock("../../services", () => ({
   },
   wsService: {
     on: vi.fn(() => vi.fn()),
+    onDisconnect: vi.fn(() => vi.fn()),
   },
 }));
 

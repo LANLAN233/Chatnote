@@ -215,6 +215,245 @@ describe("useAiProgress", () => {
     expect(disconnectUnsub).not.toHaveBeenCalled();
   });
 
+  it("should accumulate stages for same operation_id", () => {
+    const { result } = renderHook(() => useAiProgress());
+
+    act(() => {
+      result.current.startTracking();
+    });
+
+    // First event: stage 1
+    act(() => {
+      progressHandler!({
+        operation_id: "op-1",
+        stages: [
+          {
+            stage: "init",
+            status: "completed",
+            model: "gpt-4",
+            tier: "primary",
+            message: "Initialization done",
+          },
+        ],
+        current_stage: 1,
+        overall_status: "in_progress",
+      });
+    });
+
+    expect(result.current.progress?.stages.length).toBe(1);
+
+    // Second event: same op_id, new stage 2 (accumulate)
+    act(() => {
+      progressHandler!({
+        operation_id: "op-1",
+        stages: [
+          {
+            stage: "processing",
+            status: "in_progress",
+            model: "gpt-4",
+            tier: "primary",
+            message: "Processing data",
+          },
+        ],
+        current_stage: 2,
+        overall_status: "in_progress",
+      });
+    });
+
+    expect(result.current.progress?.stages.length).toBe(2);
+    expect(result.current.progress?.current_stage).toBe(2);
+    expect(result.current.progress?.overall_status).toBe("in_progress");
+    expect(result.current.progress?.operation_id).toBe("op-1");
+  });
+
+  it("should update stage status when same stage name arrives with new status", () => {
+    const { result } = renderHook(() => useAiProgress());
+
+    act(() => {
+      result.current.startTracking();
+    });
+
+    // Stage "init" as in_progress
+    act(() => {
+      progressHandler!({
+        operation_id: "op-1",
+        stages: [
+          {
+            stage: "init",
+            status: "in_progress",
+            model: "gpt-4",
+            tier: "primary",
+            message: "Starting",
+          },
+        ],
+        current_stage: 0,
+        overall_status: "in_progress",
+      });
+    });
+
+    expect(result.current.progress?.stages[0].status).toBe("in_progress");
+
+    // Same stage name, updated to completed
+    act(() => {
+      progressHandler!({
+        operation_id: "op-1",
+        stages: [
+          {
+            stage: "init",
+            status: "completed",
+            model: "gpt-4",
+            tier: "primary",
+            message: "Done",
+          },
+        ],
+        current_stage: 0,
+        overall_status: "in_progress",
+      });
+    });
+
+    expect(result.current.progress?.stages.length).toBe(1);
+    expect(result.current.progress?.stages[0].status).toBe("completed");
+    expect(result.current.progress?.stages[0].message).toBe("Done");
+  });
+
+  it("should replace progress when different operation_id arrives", () => {
+    const { result } = renderHook(() => useAiProgress());
+
+    act(() => {
+      result.current.startTracking();
+    });
+
+    // First op
+    act(() => {
+      progressHandler!({
+        operation_id: "op-1",
+        stages: [
+          {
+            stage: "init",
+            status: "completed",
+            model: "gpt-4",
+            tier: "primary",
+            message: "Op1 init",
+          },
+        ],
+        current_stage: 1,
+        overall_status: "in_progress",
+      });
+    });
+
+    expect(result.current.progress?.operation_id).toBe("op-1");
+
+    // Second op (different)
+    act(() => {
+      progressHandler!({
+        operation_id: "op-2",
+        stages: [
+          {
+            stage: "setup",
+            status: "in_progress",
+            model: "claude",
+            tier: "secondary",
+            message: "Op2 setup",
+          },
+        ],
+        current_stage: 0,
+        overall_status: "in_progress",
+      });
+    });
+
+    expect(result.current.progress?.operation_id).toBe("op-2");
+    expect(result.current.progress?.stages.length).toBe(1);
+    expect(result.current.progress?.stages[0].stage).toBe("setup");
+  });
+
+  it("should keep progress on completed status (not clear)", () => {
+    const { result } = renderHook(() => useAiProgress());
+
+    act(() => {
+      result.current.startTracking();
+    });
+
+    act(() => {
+      progressHandler!({
+        operation_id: "op-1",
+        stages: [
+          {
+            stage: "init",
+            status: "completed",
+            model: "gpt-4",
+            tier: "primary",
+            message: "Done",
+          },
+        ],
+        current_stage: 1,
+        overall_status: "completed",
+      });
+    });
+
+    expect(result.current.progress).not.toBeNull();
+    expect(result.current.progress?.overall_status).toBe("completed");
+  });
+
+  it("should expose clearProgress function that clears without unsubscribing", () => {
+    const { result } = renderHook(() => useAiProgress());
+
+    act(() => {
+      result.current.startTracking();
+    });
+
+    // Set some progress
+    act(() => {
+      progressHandler!({
+        operation_id: "op-1",
+        stages: [],
+        current_stage: 0,
+        overall_status: "in_progress",
+      });
+    });
+
+    expect(result.current.progress).not.toBeNull();
+
+    // Also set disconnected
+    act(() => {
+      disconnectHandler!();
+    });
+
+    expect(result.current.disconnected).toBe(true);
+
+    // Clear progress
+    act(() => {
+      result.current.clearProgress();
+    });
+
+    expect(result.current.progress).toBeNull();
+    expect(result.current.disconnected).toBe(false);
+
+    // Progress unsub should NOT have been called (clearProgress doesn't unsubscribe)
+    expect(progressUnsub).not.toHaveBeenCalledWith();
+    expect(disconnectUnsub).not.toHaveBeenCalledWith();
+
+    // Verify tracking is still active: new events should still be processed
+    act(() => {
+      progressHandler!({
+        operation_id: "op-3",
+        stages: [
+          {
+            stage: "new-stage",
+            status: "in_progress",
+            model: "gpt-4",
+            tier: "primary",
+            message: "Still tracking",
+          },
+        ],
+        current_stage: 0,
+        overall_status: "in_progress",
+      });
+    });
+
+    expect(result.current.progress).not.toBeNull();
+    expect(result.current.progress?.operation_id).toBe("op-3");
+  });
+
   it("should clear progress on startTracking", () => {
     const { result } = renderHook(() => useAiProgress());
 

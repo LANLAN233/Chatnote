@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AiProgressEvent } from "../../types";
 
 interface AiProgressPanelProps {
@@ -32,9 +32,14 @@ function formatDuration(ms: number | null | undefined): string {
 
 export default function AiProgressPanel({
   progress,
-  defaultExpanded = false,
 }: AiProgressPanelProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(() => progress?.overall_status === "in_progress");
+
+  useEffect(() => {
+    if (progress?.overall_status === "completed" || progress?.overall_status === "failed") {
+      setExpanded(false);
+    }
+  }, [progress?.overall_status]);
 
   if (!progress) return null;
 
@@ -47,16 +52,31 @@ export default function AiProgressPanel({
   const overallColorClass = STATUS_COLORS[overall_status] || STATUS_COLORS.pending;
 
   const isInProgress = overall_status === "in_progress";
+  const isCompleted = overall_status === "completed";
+  const isFailed = overall_status === "failed";
+
+  const completedCount = stages.filter((s) => s.status === "completed").length;
+  const totalDurationMs = stages.reduce((sum, s) => sum + (s.duration_ms || 0), 0);
+
+  let summaryText: string;
+  if (isCompleted) {
+    summaryText = `完成 — ${completedCount}/${totalStages} stages | ${formatDuration(totalDurationMs)}`;
+  } else if (isFailed) {
+    summaryText = `失败 — ${completedCount}/${totalStages} stages`;
+  } else {
+    summaryText = currentStage?.message || "Processing...";
+  }
 
   return (
     <div className="bg-[#2b2d31] border border-[#1e1f22] rounded-md overflow-hidden">
-      {/* Collapsed header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#35373c] transition-colors"
-        aria-expanded={expanded}
-        data-testid="progress-toggle"
-      >
+      {/* Summary row / toggle */}
+      <div data-testid="progress-summary">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#35373c] transition-colors"
+          aria-expanded={expanded}
+          data-testid="progress-toggle"
+        >
         <span
           className={`text-sm shrink-0 ${isInProgress ? "animate-pulse" : ""}`}
           aria-hidden="true"
@@ -66,15 +86,18 @@ export default function AiProgressPanel({
         <span
           className={`text-xs font-medium flex-1 text-left truncate ${overallColorClass}`}
         >
-          {currentStage?.message || "Processing..."}
+          {summaryText}
         </span>
-        <span className="text-[10px] text-[#949ba4] shrink-0">
-          {currentStageIndex + 1}/{totalStages}
-        </span>
-        <span className="text-[10px] text-[#949ba4] shrink-0 ml-1">
-          {expanded ? "▼" : "▶"}
-        </span>
-      </button>
+        {!(isCompleted || isFailed) && (
+          <span className="text-[10px] text-[#949ba4] shrink-0">
+            {currentStageIndex + 1}/{totalStages}
+          </span>
+        )}
+          <span className="text-[10px] text-[#949ba4] shrink-0 ml-1">
+            {expanded ? "▼" : "▶"}
+          </span>
+        </button>
+      </div>
 
       {/* Expanded step list */}
       <div

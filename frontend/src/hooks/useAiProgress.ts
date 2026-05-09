@@ -26,7 +26,23 @@ export function useAiProgress() {
 
     progressUnsubRef.current = wsService.on("ai_progress", (event: AiProgressEvent) => {
       if (activeRef.current) {
-        setProgress(event);
+        setProgress((prev) => {
+          if (!prev) return event;
+          if (prev.operation_id === event.operation_id) {
+            // Accumulate stages: merge by stage name, incoming overwrites
+            const stageMap = new Map<string, AiProgressEvent["stages"][number]>();
+            for (const s of prev.stages) stageMap.set(s.stage, s);
+            for (const s of event.stages) stageMap.set(s.stage, s);
+            return {
+              ...prev,
+              stages: Array.from(stageMap.values()),
+              current_stage: event.current_stage,
+              overall_status: event.overall_status,
+            };
+          }
+          // Different operation_id: replace entirely
+          return event;
+        });
       }
     });
 
@@ -51,6 +67,11 @@ export function useAiProgress() {
     setDisconnected(false);
   }, []);
 
+  const clearProgress = useCallback(() => {
+    setProgress(null);
+    setDisconnected(false);
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -60,5 +81,5 @@ export function useAiProgress() {
     };
   }, []);
 
-  return { progress, disconnected, startTracking, stopTracking };
+  return { progress, disconnected, startTracking, stopTracking, clearProgress };
 }

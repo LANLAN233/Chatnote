@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -530,6 +530,47 @@ class InboxItemResponse(BaseModel):
     ai_summary: str | None
     ai_confidence: float | None
     status: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── DailySummary schemas ──────────────────────────────────────────────
+
+
+class DailySummaryCreate(BaseModel):
+    """Request schema for creating a daily summary."""
+
+    date: datetime.date
+    summary: str
+    keywords: list[dict[str, Any]] | None = []
+    total_notes: int = 0
+    highlight_note_id: int | None = None
+    stages: list[dict[str, Any]] | None = None
+
+
+class DailySummaryUpdate(BaseModel):
+    """Request schema for updating a daily summary (summary text only)."""
+
+    summary: str = Field(..., min_length=1)
+
+
+class DailySummaryResponse(BaseModel):
+    """Response schema for a daily summary record.
+
+    Field names use snake_case to match the frontend DailySummaryResponse
+    interface (see frontend/src/types/index.ts:453-459).
+    """
+
+    id: int
+    date: datetime.date
+    summary: str
+    keywords: list[dict[str, Any]] | None = None
+    total_notes: int
+    highlight_note_id: int | None = None
+    stages: list[dict[str, Any]] | None = None
+    is_edited: bool = False
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

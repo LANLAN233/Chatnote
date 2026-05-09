@@ -11,7 +11,7 @@ export default function AppLayout() {
   const { fetchServers } = useServerStore();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const [homeTab, setHomeTab] = useState<"overview" | "console" | "import" | "inbox" | "recent">("overview");
+  const [homeTab, setHomeTab] = useState<"overview" | "console" | "import" | "inbox" | "recent" | "daily-summary">("overview");
   const [inboxBadge, setInboxBadge] = useState(0);
 
   const loadBadge = useCallback(async () => {
@@ -37,7 +37,7 @@ export default function AppLayout() {
   // Sync tab param from URL to homeTab state
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab === "console" || tab === "import" || tab === "inbox" || tab === "recent" || tab === "overview") {
+    if (tab === "console" || tab === "import" || tab === "inbox" || tab === "recent" || tab === "overview" || tab === "daily-summary") {
       setHomeTab(tab);
     }
   }, [searchParams]);

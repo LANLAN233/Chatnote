@@ -49,8 +49,16 @@ describe("AiProgressPanel", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders collapsed by default", () => {
-    render(<AiProgressPanel progress={makeProgress()} />);
+  it("renders collapsed by default for completed status", () => {
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 3,
+      stages: [
+        { stage: "step_one", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 500 },
+        { stage: "step_two", status: "completed", model: "gpt-4o", tier: "strong", message: "Done", duration_ms: 700 },
+      ],
+    });
+    render(<AiProgressPanel progress={completedProgress} />);
 
     const toggle = screen.getByTestId("progress-toggle");
 
@@ -58,10 +66,10 @@ describe("AiProgressPanel", () => {
     expect(toggle).toBeInTheDocument();
 
     // Progress fraction visible in header
-    expect(toggle.textContent).toContain("2/4");
+    expect(toggle.textContent).toContain("2/2");
 
-    // Current stage message visible in header
-    expect(toggle.textContent).toContain("Generating summary...");
+    // Summary text for completed
+    expect(toggle.textContent).toContain("完成");
 
     // Step details container should have collapsed classes
     const stepContainer = screen.queryByTestId("progress-step-0")?.parentElement?.parentElement;
@@ -70,7 +78,15 @@ describe("AiProgressPanel", () => {
   });
 
   it("expands to show step details when clicked", () => {
-    render(<AiProgressPanel progress={makeProgress()} />);
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 1,
+      stages: [
+        { stage: "extract_knowledge", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 1200 },
+        { stage: "generate_summary", status: "completed", model: "gpt-4o", tier: "strong", message: "Done", duration_ms: 800 },
+      ],
+    });
+    render(<AiProgressPanel progress={completedProgress} />);
 
     const toggle = screen.getByTestId("progress-toggle");
     fireEvent.click(toggle);
@@ -78,14 +94,10 @@ describe("AiProgressPanel", () => {
     // All steps should now be visible
     expect(screen.getByTestId("progress-step-0")).toBeVisible();
     expect(screen.getByTestId("progress-step-1")).toBeVisible();
-    expect(screen.getByTestId("progress-step-2")).toBeVisible();
-    expect(screen.getByTestId("progress-step-3")).toBeVisible();
 
     // Step content checks
     expect(screen.getByText("extract_knowledge")).toBeInTheDocument();
     expect(screen.getByText("generate_summary")).toBeInTheDocument();
-    expect(screen.getByText("extract_keywords")).toBeInTheDocument();
-    expect(screen.getByText("fallback_step")).toBeInTheDocument();
 
     // Model and tier info (scoped to first step)
     const firstStep = screen.getByTestId("progress-step-0");
@@ -97,7 +109,17 @@ describe("AiProgressPanel", () => {
   });
 
   it("shows correct status icons in expanded view", () => {
-    render(<AiProgressPanel progress={makeProgress()} />);
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 3,
+      stages: [
+        { stage: "step_a", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 100 },
+        { stage: "step_b", status: "in_progress", model: "gpt-4o", tier: "strong", message: "Working" },
+        { stage: "step_c", status: "pending", model: "", tier: "fast", message: "Pending" },
+        { stage: "step_d", status: "fallback", model: "gpt-3.5-turbo", tier: "fast", message: "Fallback" },
+      ],
+    });
+    render(<AiProgressPanel progress={completedProgress} />);
 
     fireEvent.click(screen.getByTestId("progress-toggle"));
 
@@ -115,11 +137,19 @@ describe("AiProgressPanel", () => {
   });
 
   it("applies fallback warning styling to fallback steps", () => {
-    render(<AiProgressPanel progress={makeProgress()} />);
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 1,
+      stages: [
+        { stage: "step_one", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 200 },
+        { stage: "fallback_step", status: "fallback", model: "gpt-3.5-turbo", tier: "fast", message: "Fallback", duration_ms: 300 },
+      ],
+    });
+    render(<AiProgressPanel progress={completedProgress} />);
 
     fireEvent.click(screen.getByTestId("progress-toggle"));
 
-    const fallbackStep = screen.getByTestId("progress-step-3");
+    const fallbackStep = screen.getByTestId("progress-step-1");
     // Should have amber background tint class
     expect(fallbackStep.className).toContain("bg-[#fee75c]/10");
     // Should have amber text color for stage name
@@ -151,8 +181,10 @@ describe("AiProgressPanel", () => {
 
     render(<AiProgressPanel progress={progress} />);
 
-    // Overall status should show error color (message text)
-    expect(screen.getByText("Error occurred")).toBeInTheDocument();
+    // Overall status should show failed summary text
+    const toggle = screen.getByTestId("progress-toggle");
+    expect(toggle.textContent).toContain("失败");
+    expect(toggle.textContent).toContain("1/2");
 
     fireEvent.click(screen.getByTestId("progress-toggle"));
 
@@ -161,15 +193,30 @@ describe("AiProgressPanel", () => {
     expect(failedStep.textContent).toContain("Failed");
   });
 
-  it("respects defaultExpanded prop", () => {
-    render(<AiProgressPanel progress={makeProgress()} defaultExpanded={true} />);
+  it("ignores defaultExpanded when status is completed", () => {
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 1,
+      stages: [
+        { stage: "step_one", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 500 },
+      ],
+    });
+    render(<AiProgressPanel progress={completedProgress} defaultExpanded={true} />);
 
-    // Steps should be visible immediately
-    expect(screen.getByTestId("progress-step-0")).toBeVisible();
+    // Should be collapsed because status is completed
+    const stepContainer = screen.queryByTestId("progress-step-0")?.parentElement?.parentElement;
+    expect(stepContainer?.className).toContain("max-h-0");
   });
 
   it("updates aria-expanded attribute", () => {
-    render(<AiProgressPanel progress={makeProgress()} />);
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 0,
+      stages: [
+        { stage: "step_one", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 500 },
+      ],
+    });
+    render(<AiProgressPanel progress={completedProgress} />);
 
     const toggle = screen.getByTestId("progress-toggle");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -185,5 +232,90 @@ describe("AiProgressPanel", () => {
     const toggle = screen.getByTestId("progress-toggle");
     expect(toggle.textContent).toContain("0/0");
     expect(toggle.textContent).toContain("Processing...");
+  });
+
+  it("renders summary row when overall_status is completed", () => {
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 1,
+      stages: [
+        { stage: "step_one", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 500 },
+        { stage: "step_two", status: "completed", model: "gpt-4o", tier: "strong", message: "Done", duration_ms: 700 },
+      ],
+    });
+    render(<AiProgressPanel progress={completedProgress} />);
+
+    // Summary row should be visible
+    expect(screen.getByTestId("progress-summary")).toBeInTheDocument();
+
+    // Summary text should contain completed info
+    const toggle = screen.getByTestId("progress-toggle");
+    expect(toggle.textContent).toContain("完成");
+    expect(toggle.textContent).toContain("2/2");
+    expect(toggle.textContent).toContain("1.2s");
+
+    // Stage list should be collapsed (max-h-0)
+    const stepContainer = screen.queryByTestId("progress-step-0")?.parentElement?.parentElement;
+    expect(stepContainer?.className).toContain("max-h-0");
+  });
+
+  it("expands on toggle click when completed", () => {
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 1,
+      stages: [
+        { stage: "step_one", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 500 },
+        { stage: "step_two", status: "completed", model: "gpt-4o", tier: "strong", message: "Done", duration_ms: 700 },
+      ],
+    });
+    render(<AiProgressPanel progress={completedProgress} />);
+
+    const toggle = screen.getByTestId("progress-toggle");
+    fireEvent.click(toggle);
+
+    // Stage list should now be expanded (max-h-96)
+    const stepContainer = screen.queryByTestId("progress-step-0")?.parentElement?.parentElement;
+    expect(stepContainer?.className).toContain("max-h-96");
+    expect(stepContainer?.className).toContain("opacity-100");
+  });
+
+  it("stays expanded for in_progress status", () => {
+    render(<AiProgressPanel progress={makeProgress()} />);
+
+    // Should be expanded by default when in_progress
+    const stepContainer = screen.queryByTestId("progress-step-0")?.parentElement?.parentElement;
+    expect(stepContainer?.className).toContain("max-h-96");
+    expect(stepContainer?.className).toContain("opacity-100");
+  });
+
+  it("auto-shrinks when status changes to completed", () => {
+    const inProgressProgress = makeProgress({
+      overall_status: "in_progress",
+      current_stage: 1,
+      stages: [
+        { stage: "step_one", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 500 },
+        { stage: "step_two", status: "in_progress", model: "gpt-4o", tier: "strong", message: "Working..." },
+      ],
+    });
+    const { rerender } = render(<AiProgressPanel progress={inProgressProgress} />);
+
+    // Should be expanded while in_progress
+    let stepContainer = screen.queryByTestId("progress-step-0")?.parentElement?.parentElement;
+    expect(stepContainer?.className).toContain("max-h-96");
+
+    // Change to completed
+    const completedProgress = makeProgress({
+      overall_status: "completed",
+      current_stage: 1,
+      stages: [
+        { stage: "step_one", status: "completed", model: "gpt-4o", tier: "primary", message: "Done", duration_ms: 500 },
+        { stage: "step_two", status: "completed", model: "gpt-4o", tier: "strong", message: "Done", duration_ms: 700 },
+      ],
+    });
+    rerender(<AiProgressPanel progress={completedProgress} />);
+
+    // Should now be collapsed
+    stepContainer = screen.queryByTestId("progress-step-0")?.parentElement?.parentElement;
+    expect(stepContainer?.className).toContain("max-h-0");
   });
 });

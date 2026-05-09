@@ -291,6 +291,8 @@ export interface ConsoleMessageMetadata {
   code?: string;
   output?: string;
   language?: string;
+  // Agent pipeline stages
+  stages?: AiProgressStage[];
 }
 
 export interface ConsoleMessage {
@@ -423,9 +425,13 @@ export interface ScheduleImportSuggestion {
   message: string;
 }
 
+export interface ScheduleImportItem extends Schedule {
+  server_name?: string;
+}
+
 export interface ScheduleImportResult {
   servers: ScheduleImportServer[];
-  schedules: Schedule[];
+  schedules: ScheduleImportItem[];
   suggestions: ScheduleImportSuggestion[];
 }
 
@@ -437,6 +443,15 @@ export interface ServerFile {
   file_category: string;
   created_at: string;
   url: string;
+}
+
+export interface DailySummaryListItem {
+  date: string;
+  summary: string;
+  total_notes: number;
+  keywords?: Array<{ keyword: string; note_ids: number[] }>;
+  highlight_note_id?: number | null;
+  stages?: DailySummaryStage[];
 }
 
 export interface DailySummaryStage {
@@ -452,6 +467,16 @@ export interface DailySummaryResponse {
   total_notes: number;
   highlight_note_id: number | null;
   stages?: DailySummaryStage[];
+  is_edited: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DailySummaryListItem {
+  date: string;
+  total_notes: number;
+  is_edited: boolean;
+  created_at: string;
 }
 
 export interface ThreadResponse {

@@ -206,3 +206,236 @@ describe("MessageList markdown rendering", () => {
     expect(link).toHaveAttribute("href", "https://openai.com");
   });
 });
+
+describe("MessageList AgentConversation embedding", () => {
+  it("renders AgentConversation inside query_answer bubble when stages metadata present", () => {
+    render(
+      <MessageList
+        {...baseProps}
+        messages={[
+          {
+            id: 1,
+            session_id: 1,
+            role: "assistant",
+            content: "Answer text",
+            type: "query_answer",
+            created_at: new Date().toISOString(),
+            metadata: {
+              stages: [
+                {
+                  stage: "retrieval",
+                  status: "completed",
+                  model: "gpt-4",
+                  tier: "strong",
+                  message: "Retrieved 3 notes",
+                  duration_ms: 1200,
+                },
+              ],
+              sources: [
+                { server: "Server", channel: "Channel", excerpt: "Excerpt" },
+              ],
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByTestId("agent-conversation")).toBeInTheDocument();
+    // Sources should still render below AgentConversation
+    expect(screen.getByText(/基于 1 条笔记/)).toBeInTheDocument();
+  });
+
+  it("does NOT render AgentConversation for non-query_answer types", () => {
+    render(
+      <MessageList
+        {...baseProps}
+        messages={[
+          {
+            id: 1,
+            session_id: 1,
+            role: "assistant",
+            content: "Regular text",
+            type: "text",
+            created_at: new Date().toISOString(),
+            metadata: {
+              stages: [
+                {
+                  stage: "retrieval",
+                  status: "completed",
+                  model: "gpt-4",
+                  tier: "strong",
+                  message: "Retrieved 3 notes",
+                  duration_ms: 1200,
+                },
+              ],
+            },
+          },
+          {
+            id: 2,
+            session_id: 1,
+            role: "assistant",
+            content: "Error message",
+            type: "error",
+            created_at: new Date().toISOString(),
+            metadata: {
+              stages: [
+                {
+                  stage: "retrieval",
+                  status: "failed",
+                  model: "gpt-4",
+                  tier: "strong",
+                  message: "Failed",
+                  duration_ms: 500,
+                },
+              ],
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.queryByTestId("agent-conversation")).not.toBeInTheDocument();
+  });
+
+  it("does NOT render AgentConversation when stages is empty", () => {
+    render(
+      <MessageList
+        {...baseProps}
+        messages={[
+          {
+            id: 1,
+            session_id: 1,
+            role: "assistant",
+            content: "Answer text",
+            type: "query_answer",
+            created_at: new Date().toISOString(),
+            metadata: {
+              stages: [],
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.queryByTestId("agent-conversation")).not.toBeInTheDocument();
+  });
+
+  it("shows AgentConversation in query_answer bubble when stages in metadata (2 stages, toggle)", () => {
+    render(
+      <MessageList
+        {...baseProps}
+        messages={[
+          {
+            id: 1,
+            session_id: 1,
+            role: "assistant",
+            content: "Multi-stage answer",
+            type: "query_answer",
+            created_at: new Date().toISOString(),
+            metadata: {
+              stages: [
+                {
+                  stage: "retrieval",
+                  status: "completed",
+                  model: "gpt-4",
+                  tier: "strong",
+                  message: "Retrieved 5 notes",
+                  duration_ms: 1200,
+                },
+                {
+                  stage: "answer_generation",
+                  status: "completed",
+                  model: "gpt-4",
+                  tier: "strong",
+                  message: "Generated answer",
+                  duration_ms: 800,
+                },
+              ],
+            },
+          },
+        ]}
+      />
+    );
+
+    // AgentConversation should be rendered
+    const agentConv = screen.getByTestId("agent-conversation");
+    expect(agentConv).toBeInTheDocument();
+
+    // Toggle button should exist
+    const toggle = screen.getByTestId("agent-conversation-toggle");
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.textContent).toContain("Agent Conversation");
+    expect(toggle.textContent).toContain("2 stages");
+
+    // Both stage cards should render (inside the body)
+    expect(screen.getByTestId("stage-card-0")).toBeInTheDocument();
+    expect(screen.getByTestId("stage-card-1")).toBeInTheDocument();
+  });
+
+  it("full pipeline: query_answer renders both AgentConversation and sources without conflict", () => {
+    const { container } = render(
+      <MessageList
+        {...baseProps}
+        messages={[
+          {
+            id: 1,
+            session_id: 1,
+            role: "assistant",
+            content: "Full pipeline answer",
+            type: "query_answer",
+            created_at: new Date().toISOString(),
+            metadata: {
+              stages: [
+                {
+                  stage: "retrieval",
+                  status: "completed",
+                  model: "gpt-4",
+                  tier: "strong",
+                  message: "Retrieved 5 notes",
+                  duration_ms: 1200,
+                },
+                {
+                  stage: "answer_generation",
+                  status: "completed",
+                  model: "gpt-4",
+                  tier: "strong",
+                  message: "Generated answer",
+                  duration_ms: 1500,
+                },
+              ],
+              sources: [
+                { server: "MathClass", channel: "极限", excerpt: "Limits are..." },
+                { server: "PhysicsLab", channel: "力学", excerpt: "Newton's laws..." },
+              ],
+            },
+          },
+        ]}
+      />
+    );
+
+    // Both AgentConversation and sources should coexist
+    const agentConv = screen.getByTestId("agent-conversation");
+    expect(agentConv).toBeInTheDocument();
+
+    // Sources section should exist with count text
+    expect(screen.getByText(/基于 2 条笔记/)).toBeInTheDocument();
+
+    // Source references should display
+    expect(screen.getByText("@MathClass/#极限")).toBeInTheDocument();
+    expect(screen.getByText("@PhysicsLab/#力学")).toBeInTheDocument();
+
+    // AgentConversation should appear BEFORE sources in the DOM
+    const agentConvEl = container.querySelector('[data-testid="agent-conversation"]');
+    const sourcesText = screen.getByText(/基于 2 条笔记/);
+    expect(
+      agentConvEl!.compareDocumentPosition(sourcesText) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    // No overlap: both sections should be independently present
+    const toggle = screen.getByTestId("agent-conversation-toggle");
+    expect(toggle).toBeInTheDocument();
+
+    const viewAllSources = screen.getByText("查看全部来源");
+    expect(viewAllSources).toBeInTheDocument();
+  });
+});

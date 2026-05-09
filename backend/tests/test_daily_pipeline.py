@@ -229,8 +229,8 @@ async def test_pipeline_stage2_failure_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_stage3_failure_fallback(monkeypatch):
-    """Stage 3 failure → fallback to single-model generate_daily_summary."""
+async def test_pipeline_stage3_failure_continues(monkeypatch):
+    """Stage 3 failure → continues with summary from Stage 2 (keywords optional)."""
     import app.ai.daily_summary as ds_module
 
     notes = [_make_note(1, "Database normalization forms")]
@@ -259,21 +259,19 @@ async def test_pipeline_stage3_failure_fallback(monkeypatch):
         lambda model: _mock_agent_arun(STAGE2_OUTPUT),
     )
 
-    fallback_result = {
-        "summary": "Fallback after stage 3 failure",
-        "keywords": [],
-        "total_notes": 1,
-        "highlight_note_id": None,
-    }
-    monkeypatch.setattr(
-        ds_module,
-        "generate_daily_summary",
-        AsyncMock(return_value=fallback_result),
-    )
+    # Stage 3 failure should NOT trigger fallback — keywords are optional
+    # generate_daily_summary should NOT be called
+    fallback_mock = AsyncMock()
+    monkeypatch.setattr(ds_module, "generate_daily_summary", fallback_mock)
 
     result = await generate_daily_summary_pipeline(user_id=1, db=db)
 
-    assert result["summary"] == "Fallback after stage 3 failure"
+    # Should return Stage 2 summary, not fallback
+    assert "F=ma" in result["summary"]
+    assert result["total_notes"] == 1
+    assert result["keywords"] == []  # Stage 3 failed, no keywords
+    fallback_mock.assert_not_called()
+
     stages = result["stages"]
     kw_stage = next((s for s in stages if s["name"] == "keywords"), None)
     assert kw_stage is not None

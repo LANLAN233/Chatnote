@@ -231,6 +231,15 @@ async def list_providers():
                     "preset_models": ["gpt-3.5-turbo", "gpt-4o", "gpt-4o-mini"],
                 },
                 {
+                    "id": "moonshot",
+                    "name": "Moonshot (Kimi)",
+                    "default_model": "kimi-k2.5",
+                    "text_model": "kimi-k2.5",
+                    "vision_model": "kimi-k2.5",
+                    "base_url": "https://api.moonshot.cn/v1",
+                    "preset_models": ["kimi-k2.5"],
+                },
+                {
                     "id": "opencode-zen",
                     "name": "OpenCode Zen",
                     "default_model": "kimi-k2.6",

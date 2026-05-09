@@ -6,6 +6,7 @@ import UrlPreviewCard from "../common/UrlPreviewCard";
 import CodeExecutionBlock from "../common/CodeExecutionBlock";
 import ToolCallIndicator from "../common/ToolCallIndicator";
 import ToolResultAccordion from "../common/ToolResultAccordion";
+import AgentConversation from "../console/AgentConversation";
 
 interface MessageListProps {
   messages: ConsoleMessage[];
@@ -152,6 +153,12 @@ export default function MessageList({
                 ) : (
                   <div className="whitespace-pre-wrap break-words leading-relaxed select-text">
                     {msg.content}
+                  </div>
+                )}
+
+                {msg.type === "query_answer" && msg.metadata?.stages && msg.metadata.stages.length > 0 && (
+                  <div className="mt-3">
+                    <AgentConversation stages={msg.metadata.stages} />
                   </div>
                 )}
 
