@@ -1,12 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import React from "react";
 
 // Stable references — hoisted so mock factory can access them
-const { stableServers, stableFetchServers } = vi.hoisted(() => ({
-  stableServers: [] as unknown[],
-  stableFetchServers: vi.fn(),
-}));
+const { stableServers, stableFetchServers, mockUseServerStore } = vi.hoisted(() => {
+  const servers: unknown[] = [];
+  const fetchServers = vi.fn();
+  const mockStore = vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
+    const state = { servers, fetchServers };
+    return selector ? selector(state) : state;
+  });
+  mockStore.getState = vi.fn(() => ({ servers, fetchServers }));
+  return { stableServers: servers, stableFetchServers: fetchServers, mockUseServerStore: mockStore };
+});
 
 // Mock services
 vi.mock("../../services", () => ({
@@ -25,10 +31,7 @@ vi.mock("../../services", () => ({
 
 // Mock stores with stable references to prevent re-render loops
 vi.mock("../../stores", () => ({
-  useServerStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
-    const state = { servers: stableServers, fetchServers: stableFetchServers };
-    return selector ? selector(state) : state;
-  }),
+  useServerStore: mockUseServerStore,
   useChannelStore: vi.fn(),
 }));
 
@@ -267,6 +270,266 @@ describe("HomeInboxPanel review status", () => {
     await waitFor(() => {
       const span = screen.getByText("70%");
       expect(span.getAttribute("title")).toBe("建议人工确认 — 双模型结果不一致");
+    });
+  });
+});
+
+describe("HomeInboxPanel archive dialog pre-fill", () => {
+  beforeEach(() => {
+    stableServers.length = 0;
+  });
+
+  it("pre-fills server and channel when both exist", async () => {
+    stableServers.push({ id: 1, name: "线性代数", user_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" });
+
+    const { channelApi } = await import("../../services");
+    (channelApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [{ id: 10, name: "特征值", server_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" }] },
+    });
+
+    const { inboxApi } = await import("../../services");
+    (inboxApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [makeInboxItem({ ai_suggested_server: "线性代数", ai_suggested_channel: "特征值" })] },
+    });
+
+    render(<HomeInboxPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test note about calculus")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("归档"));
+
+    await waitFor(() => {
+      expect(screen.getByText("归档笔记")).toBeDefined();
+    });
+
+    await waitFor(() => {
+      const selects = screen.getAllByRole("combobox");
+      expect((selects[0] as HTMLSelectElement).value).toBe("1");
+    });
+
+    const selects = screen.getAllByRole("combobox");
+    expect((selects[1] as HTMLSelectElement).value).toBe("10");
+  });
+
+  it("pre-fills server only when channel not found", async () => {
+    stableServers.push({ id: 1, name: "线性代数", user_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" });
+
+    const { channelApi } = await import("../../services");
+    (channelApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [{ id: 10, name: "其他频道", server_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" }] },
+    });
+
+    const { inboxApi } = await import("../../services");
+    (inboxApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [makeInboxItem({ ai_suggested_server: "线性代数", ai_suggested_channel: "不存在频道" })] },
+    });
+
+    render(<HomeInboxPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test note about calculus")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("归档"));
+
+    await waitFor(() => {
+      expect(screen.getByText("归档笔记")).toBeDefined();
+    });
+
+    await waitFor(() => {
+      const selects = screen.getAllByRole("combobox");
+      expect((selects[0] as HTMLSelectElement).value).toBe("1");
+    });
+
+    const selects = screen.getAllByRole("combobox");
+    expect((selects[1] as HTMLSelectElement).value).toBe("");
+  });
+
+  it("switches to new mode when server not found", async () => {
+    stableServers.push({ id: 1, name: "其他伺服器", user_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" });
+
+    const { inboxApi } = await import("../../services");
+    (inboxApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [makeInboxItem({ ai_suggested_server: "新学科", ai_suggested_channel: "新频道" })] },
+    });
+
+    render(<HomeInboxPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test note about calculus")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("归档"));
+
+    await waitFor(() => {
+      expect(screen.getByText("归档笔记")).toBeDefined();
+    });
+
+    // Wait for pre-fill to switch to "new" mode
+    await waitFor(() => {
+      const newTab = screen.getByText("新建伺服器");
+      expect(newTab.className).toContain("bg-[#5865f2]");
+    });
+
+    const serverInput = screen.getByPlaceholderText("例如：高等数学") as HTMLInputElement;
+    expect(serverInput.value).toBe("新学科");
+
+    const channelInput = screen.getByPlaceholderText("例如：第三章 极限（留空则自动创建 General）") as HTMLInputElement;
+    expect(channelInput.value).toBe("新频道");
+  });
+
+  it("does not pre-fill when no AI suggestion", async () => {
+    stableServers.push({ id: 1, name: "线性代数", user_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" });
+
+    const { inboxApi } = await import("../../services");
+    (inboxApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [makeInboxItem({ ai_suggested_server: null, ai_suggested_channel: null })] },
+    });
+
+    render(<HomeInboxPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test note about calculus")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("归档"));
+
+    await waitFor(() => {
+      expect(screen.getByText("归档笔记")).toBeDefined();
+    });
+
+    // Dialog opens in "existing" mode (default) with empty selects
+    const existingTab = screen.getByText("归档到现有");
+    expect(existingTab.className).toContain("bg-[#5865f2]");
+
+    const selects = screen.getAllByRole("combobox");
+    expect((selects[0] as HTMLSelectElement).value).toBe("");
+  });
+
+  it("case-insensitive matching", async () => {
+    stableServers.push({ id: 1, name: "Math", user_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" });
+
+    const { channelApi } = await import("../../services");
+    (channelApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [{ id: 10, name: "Calculus", server_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" }] },
+    });
+
+    const { inboxApi } = await import("../../services");
+    (inboxApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [makeInboxItem({ ai_suggested_server: "MATH", ai_suggested_channel: "calculus" })] },
+    });
+
+    render(<HomeInboxPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test note about calculus")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("归档"));
+
+    await waitFor(() => {
+      expect(screen.getByText("归档笔记")).toBeDefined();
+    });
+
+    await waitFor(() => {
+      const selects = screen.getAllByRole("combobox");
+      expect((selects[0] as HTMLSelectElement).value).toBe("1");
+    });
+
+    const selects = screen.getAllByRole("combobox");
+    expect((selects[1] as HTMLSelectElement).value).toBe("10");
+  });
+
+  it("batch archive pre-fills using first selected item", async () => {
+    stableServers.push({ id: 1, name: "线性代数", user_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" });
+
+    const { channelApi } = await import("../../services");
+    (channelApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [{ id: 10, name: "特征值", server_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" }] },
+    });
+
+    const { inboxApi } = await import("../../services");
+    (inboxApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [
+        makeInboxItem({ id: 1, ai_suggested_server: "线性代数", ai_suggested_channel: "特征值" }),
+        makeInboxItem({ id: 2, ai_suggested_server: null, ai_suggested_channel: null }),
+      ]},
+    });
+
+    render(<HomeInboxPanel />);
+
+    await waitFor(() => {
+      const items = screen.getAllByText("Test note about calculus");
+      expect(items.length).toBe(2);
+    });
+
+    fireEvent.click(screen.getByText("全选"));
+
+    await waitFor(() => {
+      expect(screen.getByText("批量归档")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("批量归档"));
+
+    await waitFor(() => {
+      expect(screen.getByText("归档笔记")).toBeDefined();
+    });
+
+    await waitFor(() => {
+      const selects = screen.getAllByRole("combobox");
+      expect((selects[0] as HTMLSelectElement).value).toBe("1");
+    });
+
+    const selects = screen.getAllByRole("combobox");
+    expect((selects[1] as HTMLSelectElement).value).toBe("10");
+  });
+
+  it("pre-filled values can be changed by user", async () => {
+    stableServers.push({ id: 1, name: "线性代数", user_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" });
+
+    const { channelApi } = await import("../../services");
+    (channelApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [{ id: 10, name: "特征值", server_id: 1, created_at: "2024-01-01", updated_at: "2024-01-01" }] },
+    });
+
+    const { inboxApi } = await import("../../services");
+    (inboxApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { success: true, data: [makeInboxItem({ ai_suggested_server: "线性代数", ai_suggested_channel: "特征值" })] },
+    });
+
+    render(<HomeInboxPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test note about calculus")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("归档"));
+
+    await waitFor(() => {
+      expect(screen.getByText("归档笔记")).toBeDefined();
+    });
+
+    // Wait for pre-fill
+    await waitFor(() => {
+      const selects = screen.getAllByRole("combobox");
+      expect((selects[0] as HTMLSelectElement).value).toBe("1");
+    });
+
+    // Verify pre-filled values, then change server select
+    const selects = screen.getAllByRole("combobox");
+    const serverSelect = selects[0] as HTMLSelectElement;
+    expect(serverSelect.value).toBe("1");
+
+    fireEvent.change(serverSelect, { target: { value: "" } });
+    expect(serverSelect.value).toBe("");
+
+    // Click cancel to close dialog
+    fireEvent.click(screen.getByText("取消"));
+
+    await waitFor(() => {
+      expect(screen.queryByText("归档笔记")).toBeNull();
     });
   });
 });

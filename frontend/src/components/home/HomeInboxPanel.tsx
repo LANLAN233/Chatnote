@@ -64,17 +64,20 @@ export default function HomeInboxPanel() {
     setServers(allServers);
   }, [allServers]);
 
-  const loadChannels = async (serverId: number) => {
+  const loadChannels = async (serverId: number): Promise<Channel[]> => {
     try {
       const { data } = await channelApi.list(serverId);
-      if (data.data) setChannels(data.data as Channel[]);
+      const chs = (data.data as Channel[]) || [];
+      setChannels(chs);
+      return chs;
     } catch {
       setChannels([]);
+      return [];
     }
   };
 
-  const openArchiveDialog = (itemId: number) => {
-    setArchiveItemId(itemId);
+  const openArchiveDialog = async (item: InboxItemType) => {
+    setArchiveItemId(item.id);
     setArchiveMode("existing");
     setSelectedServerId(null);
     setSelectedChannelId(null);
@@ -82,7 +85,34 @@ export default function HomeInboxPanel() {
     setNewChannelName("");
     setChannels([]);
     setArchiveDialogOpen(true);
-    fetchServers();
+
+    await fetchServers();
+    const freshServers = useServerStore.getState().servers;
+
+    if (item.ai_suggested_server) {
+      const matchedServer = freshServers.find(
+        (s) => s.name.toLowerCase() === item.ai_suggested_server!.toLowerCase()
+      );
+      if (matchedServer) {
+        setArchiveMode("existing");
+        setSelectedServerId(matchedServer.id);
+        const chs = await loadChannels(matchedServer.id);
+        if (item.ai_suggested_channel) {
+          const matchedChannel = chs.find(
+            (c) => c.name.toLowerCase() === item.ai_suggested_channel!.toLowerCase()
+          );
+          if (matchedChannel) {
+            setSelectedChannelId(matchedChannel.id);
+          }
+        }
+      } else {
+        setArchiveMode("new");
+        setNewServerName(item.ai_suggested_server);
+        if (item.ai_suggested_channel) {
+          setNewChannelName(item.ai_suggested_channel);
+        }
+      }
+    }
   };
 
   const closeArchiveDialog = () => {
@@ -229,7 +259,8 @@ export default function HomeInboxPanel() {
     // Simplification: bulk archive uses the first item's AI suggestion if available,
     // otherwise prompt user to select a target server/channel.
     const firstId = Array.from(selectedIds)[0];
-    openArchiveDialog(firstId);
+    const firstItem = items.find(i => i.id === firstId);
+    if (firstItem) openArchiveDialog(firstItem);
     setBulkArchiveLoading(true);
   };
 
@@ -277,7 +308,8 @@ export default function HomeInboxPanel() {
           <button
             onClick={() => {
               const firstId = Array.from(selectedIds)[0];
-              openArchiveDialog(firstId);
+              const firstItem = items.find(i => i.id === firstId);
+              if (firstItem) openArchiveDialog(firstItem);
             }}
             className="flex items-center gap-1 text-xs font-bold text-[#23a559] hover:text-[#1a7f44] px-2 py-1 rounded hover:bg-[#23a559]/10 transition-colors"
           >
@@ -452,7 +484,7 @@ export default function HomeInboxPanel() {
                         </button>
                       )}
                       <button
-                        onClick={() => openArchiveDialog(item.id)}
+                        onClick={() => openArchiveDialog(item)}
                         disabled={archiveLoadingId === item.id || editingId === item.id}
                         className="flex items-center gap-1 text-xs font-bold text-[#23a559] hover:text-[#1a7f44] transition-colors px-2 py-1 rounded hover:bg-[#23a559]/10 disabled:opacity-50"
                       >
