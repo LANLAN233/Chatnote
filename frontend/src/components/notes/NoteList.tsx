@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import {
   Hash, Bell, Pin, Search, HelpCircle, PlusCircle,
   SendHorizontal, Image as ImageIcon, X, Pencil, Trash2, Check,
-  CornerDownLeft, Reply,
+  CornerDownLeft, Reply, MessageSquare,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useNoteStore, useChannelStore, useAuthStore, useThreadStore } from "../../stores";
@@ -59,9 +59,10 @@ export default function NoteList() {
   const { notes, fetchNotes } = useNoteStore();
   const { channels, setCurrentChannel } = useChannelStore();
   const { user } = useAuthStore();
+  const { channelThreads, fetchChannelThreads } = useThreadStore();
   const channel = channels.find((c) => c.id === Number(channelId));
   const [searchTerm, setSearchTerm] = useState("");
-  const [showPanel, setShowPanel] = useState<"none" | "notifications" | "pins">("none");
+  const [showPanel, setShowPanel] = useState<"none" | "notifications" | "pins" | "threads">("none");
   const [aiEnabled, setAiEnabled] = useState(true);
   const [pinnedNotes, setPinnedNotes] = useState<typeof notes>([]);
   const [replyTo, setReplyTo] = useState<NoteReplyPreview | null>(null);
@@ -92,6 +93,12 @@ export default function NoteList() {
       loadPinned();
     }
   }, [showPanel, loadPinned]);
+
+  useEffect(() => {
+    if (showPanel === "threads" && channelId) {
+      fetchChannelThreads(Number(channelId));
+    }
+  }, [showPanel, channelId, fetchChannelThreads]);
 
   // Auto-scroll: scroll to bottom on initial load or when a new note arrives
   useEffect(() => {
@@ -162,6 +169,13 @@ export default function NoteList() {
             )}
           </div>
           <div className="flex items-center gap-4 text-[#b5bac1]">
+            <button
+              onClick={() => setShowPanel(showPanel === "threads" ? "none" : "threads")}
+              className={`hover:text-[#dbdee1] ${showPanel === "threads" ? "text-white" : ""}`}
+              title="Threads"
+            >
+              <MessageSquare size={20} />
+            </button>
             <button
               onClick={() => setShowPanel(showPanel === "notifications" ? "none" : "notifications")}
               className={`hover:text-[#dbdee1] ${showPanel === "notifications" ? "text-white" : ""}`}
@@ -255,6 +269,50 @@ export default function NoteList() {
                 }
               }}
             />
+          ) : showPanel === "threads" ? (
+            <div className="w-80 bg-[#2b2d31] border-l border-[#1e1f22] flex flex-col animate-slide-in-right shrink-0">
+              <header className="h-12 flex items-center justify-between px-4 border-b border-[#1e1f22]">
+                <h3 className="font-bold text-white text-sm uppercase tracking-wide flex items-center gap-2">
+                  <MessageSquare size={16} /> Threads
+                </h3>
+                <button onClick={() => setShowPanel("none")} className="text-gray-400 hover:text-white">
+                  <X size={18} />
+                </button>
+              </header>
+              <div className="flex-1 overflow-y-auto p-2">
+                {channelThreads.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-center opacity-60 py-8">
+                    <div className="w-16 h-16 bg-[#313338] rounded-full mb-4 flex items-center justify-center">
+                      <MessageSquare size={32} />
+                    </div>
+                    <p className="text-sm">No threads in this channel yet.</p>
+                  </div>
+                ) : (
+                  channelThreads.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        useThreadStore.getState().setCurrentThreadId(t.id);
+                        setShowPanel("none");
+                      }}
+                      className="w-full text-left p-3 rounded hover:bg-[#35373c] transition-colors group"
+                    >
+                      <div className="flex items-start gap-2">
+                        <MessageSquare size={16} className="mt-[2px] shrink-0 text-[#80848e]" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-[#dbdee1] truncate group-hover:text-white">
+                            {t.title}
+                          </p>
+                          <p className="text-xs text-[#949ba4] mt-[2px]">
+                            {t.messages ? (t.messages.length - 1) : 0} {(t.messages ? (t.messages.length - 1) : 0) === 1 ? "reply" : "replies"}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
           ) : (
             <div className="w-80 bg-[#2b2d31] border-l border-[#1e1f22] flex flex-col animate-slide-in-right shrink-0">
               <header className="h-12 flex items-center justify-between px-4 border-b border-[#1e1f22]">

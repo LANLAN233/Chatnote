@@ -191,6 +191,8 @@ export const serverFileApi = {
 };
 
 export const threadApi = {
+  listByChannel: (channelId: number) =>
+    api.get<ApiResponse<ThreadResponse[]>>(`/channels/${channelId}/threads`),
   get: (id: number) => api.get<ApiResponse<ThreadResponse>>(`/threads/${id}`),
   update: (id: number, data: { title: string }) => api.put<ApiResponse<ThreadResponse>>(`/threads/${id}`, data),
   postMessage: (threadId: number, content: string) => api.post<ApiResponse<Note>>(`/threads/${threadId}/messages`, { content }),

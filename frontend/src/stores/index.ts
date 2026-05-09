@@ -288,10 +288,12 @@ interface ThreadState {
   thread: ThreadResponse | null;
   isLoading: boolean;
   threadCounts: Record<number, number>;
+  channelThreads: ThreadResponse[];
   setCurrentThreadId: (id: number | null) => void;
   clearCurrentThreadId: () => void;
   fetchThread: (id: number) => Promise<void>;
   fetchThreadCount: (id: number) => Promise<void>;
+  fetchChannelThreads: (channelId: number) => Promise<void>;
   updateThreadTitle: (id: number, title: string) => Promise<void>;
   postMessage: (threadId: number, content: string) => Promise<void>;
   createThread: (noteId: number, title?: string) => Promise<ThreadResponse | null>;
@@ -302,6 +304,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   thread: null,
   isLoading: false,
   threadCounts: {},
+  channelThreads: [],
   setCurrentThreadId: (id) => set({ currentThreadId: id }),
   clearCurrentThreadId: () => set({ currentThreadId: null, thread: null }),
   fetchThread: async (id) => {
@@ -335,6 +338,19 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       }
     } catch {
       // Silently fail — count stays unknown
+    }
+  },
+  fetchChannelThreads: async (channelId) => {
+    set({ isLoading: true });
+    try {
+      const { data } = await threadApi.listByChannel(channelId);
+      if (data.success && data.data) {
+        set({ channelThreads: data.data, isLoading: false });
+      } else {
+        set({ channelThreads: [], isLoading: false });
+      }
+    } catch {
+      set({ channelThreads: [], isLoading: false });
     }
   },
   updateThreadTitle: async (id, title) => {

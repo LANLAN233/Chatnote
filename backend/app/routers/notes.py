@@ -404,3 +404,25 @@ async def create_thread_message(
         data=NoteResponse.model_validate(note).model_dump(),
         message="Message posted to thread",
     )
+
+
+@router.get("/api/channels/{channel_id}/threads", response_model=ApiResponse)
+async def list_channel_threads(
+    channel_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all threads in a channel created by the current user."""
+    query = (
+        select(Thread)
+        .options(selectinload(Thread.notes))
+        .where(Thread.channel_id == channel_id, Thread.created_by == current_user.id)
+        .order_by(Thread.updated_at.desc())
+    )
+    result = await db.execute(query)
+    threads = result.scalars().all()
+
+    return ApiResponse(
+        success=True,
+        data=[ThreadResponse.model_validate(t).model_dump() for t in threads],
+    )
