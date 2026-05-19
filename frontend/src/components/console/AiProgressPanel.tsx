@@ -24,6 +24,14 @@ const STATUS_ICONS: Record<string, string> = {
   pending: "○",
 };
 
+/** Human-readable stage names for daily summary pipeline */
+const STAGE_DISPLAY_NAMES: Record<string, string> = {
+  fetching_notes: "📋 获取笔记",
+  extraction: "🧠 知识提取",
+  summary: "✍️ 生成总结",
+  keywords: "🏷️ 关键词关联",
+};
+
 function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "";
   if (ms < 1000) return `${ms}ms`;
@@ -111,6 +119,10 @@ export default function AiProgressPanel({
             const isFallback = stage.status === "fallback";
             const colorClass = STATUS_COLORS[stage.status] || STATUS_COLORS.pending;
             const icon = STATUS_ICONS[stage.status] || STATUS_ICONS.pending;
+            const displayName = STAGE_DISPLAY_NAMES[stage.stage] || stage.stage;
+            const modelLabel = stage.model && stage.model !== "system"
+              ? stage.model
+              : null;
 
             return (
               <div
@@ -128,7 +140,7 @@ export default function AiProgressPanel({
                     {icon}
                   </span>
                   <span className={`text-xs font-medium flex-1 ${colorClass}`}>
-                    {stage.stage}
+                    {displayName}
                   </span>
                   <span className="text-[10px] text-[#949ba4]">
                     {stage.status === "completed"
@@ -144,23 +156,45 @@ export default function AiProgressPanel({
                       : "Skipped"}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 pl-5">
-                  <span className="text-[10px] text-[#949ba4]">
-                    Model: {stage.model || "(pending)"}
-                  </span>
-                  <span className="text-[10px] text-[#949ba4]">|</span>
-                  <span className="text-[10px] text-[#949ba4]">
-                    Tier: {stage.tier || "—"}
-                  </span>
-                  {stage.duration_ms != null && (
-                    <>
-                      <span className="text-[10px] text-[#949ba4]">|</span>
-                      <span className="text-[10px] text-[#949ba4]">
-                        {formatDuration(stage.duration_ms)}
-                      </span>
-                    </>
-                  )}
-                </div>
+                {/* Model info row — show during in_progress too, not just completed */}
+                {modelLabel && (
+                  <div className="flex items-center gap-1 pl-5">
+                    <span className="text-[10px] text-[#949ba4]">
+                      Model: {modelLabel}
+                    </span>
+                    {stage.tier && stage.tier !== "system" && (
+                      <>
+                        <span className="text-[10px] text-[#949ba4]">|</span>
+                        <span className="text-[10px] text-[#949ba4]">
+                          Tier: {stage.tier}
+                        </span>
+                      </>
+                    )}
+                    {stage.duration_ms != null && (
+                      <>
+                        <span className="text-[10px] text-[#949ba4]">|</span>
+                        <span className="text-[10px] text-[#949ba4]">
+                          {formatDuration(stage.duration_ms)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
+                {/* Progress bar — shown when progress_pct is set */}
+                {stage.progress_pct != null && (
+                  <div className="pl-5 pr-1">
+                    <div className="h-1.5 bg-[#1e1f22] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          stage.status === "completed" ? "bg-[#23a559]" :
+                          stage.status === "failed" ? "bg-[#f23f43]" :
+                          "bg-[#5865f2]"
+                        }`}
+                        style={{ width: `${stage.progress_pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

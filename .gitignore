@@ -32,6 +32,49 @@ frontend/.vite/
 # Archive
 /_archive/
 
+# Sisyphus tooling
+/.sisyphus/
+
+# Root-level artifacts
+/.zip
+/check_format.py
+/create_report.py
+/dense_er_diagram
+/dense_er_diagram.png
+/word_optimized_er
+/word_optimized_er.png
+/word_wide_er
+/word_wide_er.png
+/word_wide_2er.pdn
+/word_wide_2er.png
+/performance-test-charts.html
+/performance-test-report.md
+/test_img/
+
+# Thesis build artifacts
+/thesis/backup-*/
+/thesis/build-thesis.py
+/thesis/format-*.py
+/thesis/generate-*.py
+/thesis/insert-charts.py
+/thesis/run-update.py
+/thesis/verify-report.py
+/thesis/*.docx
+/thesis/*.pptx
+/thesis/*.md
+/thesis/mermaid/
+/thesis/screenshot/
+/thesis/rules/
+/thesis/image-map.json
+/thesis/reference-audit-report.md
+/thesis/report-content.md
+/thesis/update-docx.ps1
+/thesis/update-thesis-docx.vba
+
+# External reports
+/专业综合拓展报告*
+/~$*
+
 # Test artifacts
 /frontend/test-results/
 /frontend/e2e/screenshots/

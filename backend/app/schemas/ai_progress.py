@@ -17,6 +17,7 @@ class AiProgressStage(BaseModel):
     message: str = Field(description="Human-readable progress message")
     metadata: dict[str, Any] | None = Field(default=None, description="Optional stage-specific metadata")
     duration_ms: int | None = Field(default=None, description="Stage execution duration in milliseconds")
+    progress_pct: int | None = Field(default=None, ge=0, le=100, description="Optional progress percentage (0-100) for granular progress bars")
 
 
 class AiProgressEvent(BaseModel):

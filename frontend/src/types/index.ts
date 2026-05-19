@@ -498,6 +498,7 @@ export interface AiProgressStage {
   message: string;
   metadata?: Record<string, unknown> | null;
   duration_ms?: number | null;
+  progress_pct?: number | null;
 }
 
 export interface AiProgressEvent {

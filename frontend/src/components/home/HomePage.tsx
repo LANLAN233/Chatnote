@@ -193,10 +193,12 @@ function OverviewTab() {
       yesterday.setDate(yesterday.getDate() - 1);
       const dateStr = yesterday.toISOString().split("T")[0];
       const { data } = await dailySummaryApi.regenerate(dateStr);
-      if (data?.data?.summary) {
+      // Always update state — even if summary is null (e.g. no notes),
+      // we must replace the old summary rather than leaving stale data
+      if (data?.data) {
         setDailySummary(data.data as DailySummaryResponse);
       } else {
-        console.warn("[DailySummary] Regenerate returned no summary data");
+        setDailySummary(null);
       }
     } catch (e) {
       console.error("[DailySummary] Regenerate failed:", e);
@@ -319,6 +321,8 @@ function OverviewTab() {
   const handleNoteClick = (note: Note | RecentNote) => {
     setShowSearch(false);
     const serverId = "server_id" in note ? note.server_id : 0;
+    useServerStore.getState().setCurrentServer(serverId);
+    useChannelStore.getState().setCurrentChannel(note.channel_id);
     navigate(`/server/${serverId}/channel/${note.channel_id}`);
   };
 
@@ -385,6 +389,7 @@ function OverviewTab() {
   };
 
   const STAGE_DISPLAY_NAMES: Record<string, string> = {
+    fetching_notes: "获取笔记",
     extraction: "提取知识点",
     summary: "生成总结",
     keywords: "关联关键词",
@@ -624,11 +629,11 @@ function OverviewTab() {
               </div>
             </div>
 
-            {/* Daily Summary */}
+            {/* Yesterday's Learning Summary */}
             <div className="bg-[#2b2d31] p-5 rounded-2xl border border-[#1e1f22]">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-white text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                  <Sparkles size={14} className="text-yellow-400" /> 每日总结
+                  <Sparkles size={14} className="text-yellow-400" /> 昨日总结
                 </h4>
                 <button
                   onClick={handleRegenerate}
@@ -760,6 +765,8 @@ function RecentActivityPanel() {
   }, [loadStats]);
 
   const handleNoteClick = (note: RecentNote) => {
+    useServerStore.getState().setCurrentServer(note.server_id);
+    useChannelStore.getState().setCurrentChannel(note.channel_id);
     navigate(`/server/${note.server_id}/channel/${note.channel_id}`);
   };
 

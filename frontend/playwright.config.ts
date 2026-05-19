@@ -23,9 +23,24 @@ export default defineConfig({
       testMatch: /auth\.setup\.ts/,
     },
     {
+      name: 'seed',
+      testMatch: /seed\.setup\.ts/,
+      use: { screenshot: 'off' },
+    },
+    {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['setup'],
+    },
+    {
+      name: 'screenshots',
+      use: {
+        viewport: { width: 1920, height: 1080 },
+        screenshot: 'on',
+      },
+      timeout: 360000,
+      dependencies: ['setup'],
+      testMatch: /0\d-.*\.spec\.ts/,
     },
   ],
   webServer: {

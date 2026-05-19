@@ -94,7 +94,7 @@ STAGE3_OUTPUT = KeywordMapping(
 
 @pytest.mark.asyncio
 async def test_pipeline_success_all_stages(monkeypatch):
-    """Full pipeline succeeds: all three stages complete and return aggregated result."""
+    """Full pipeline succeeds: all four stages (fetching_notes + extraction + summary + keywords) complete and return aggregated result."""
     import app.ai.daily_summary as ds_module
 
     notes = [
@@ -132,11 +132,11 @@ async def test_pipeline_success_all_stages(monkeypatch):
     assert len(result["keywords"]) == 4
     assert result["keywords"][0]["keyword"] == "牛顿第二定律"
     assert result["keywords"][0]["note_ids"] == [1]
-    assert len(result["stages"]) == 3
+    assert len(result["stages"]) == 4  # fetching_notes + extraction + summary + keywords
     for stage in result["stages"]:
         assert stage["status"] == "completed"
         assert "duration_ms" in stage
-        assert stage["name"] in ("extraction", "summary", "keywords")
+        assert stage["name"] in ("fetching_notes", "extraction", "summary", "keywords")
 
 
 @pytest.mark.asyncio
@@ -320,8 +320,8 @@ async def test_pipeline_stages_have_correct_structure(monkeypatch):
 
     result = await generate_daily_summary_pipeline(user_id=1, db=db)
 
-    assert len(result["stages"]) == 3
-    expected_names = {"extraction", "summary", "keywords"}
+    assert len(result["stages"]) == 4  # fetching_notes + extraction + summary + keywords
+    expected_names = {"fetching_notes", "extraction", "summary", "keywords"}
     for stage in result["stages"]:
         assert stage["name"] in expected_names
         assert stage["status"] == "completed"

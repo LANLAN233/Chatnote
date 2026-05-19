@@ -89,8 +89,19 @@ class ConnectionManager:
         if isinstance(stage_data, AiProgressStage):
             existing = self._operation_events.get(operation_id)
             if existing is not None:
-                existing.stages.append(stage_data)
-                existing.current_stage = len(existing.stages) - 1
+                # Replace existing stage with the same name instead of appending,
+                # so that status transitions (in_progress -> completed) do not
+                # accumulate duplicate entries.
+                replaced = False
+                for idx, s in enumerate(existing.stages):
+                    if s.stage == stage_data.stage:
+                        existing.stages[idx] = stage_data
+                        existing.current_stage = idx
+                        replaced = True
+                        break
+                if not replaced:
+                    existing.stages.append(stage_data)
+                    existing.current_stage = len(existing.stages) - 1
                 if stage_data.status in ("completed", "failed"):
                     existing.overall_status = stage_data.status
                 else:

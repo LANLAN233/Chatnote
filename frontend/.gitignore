@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# E2E generated assets
+e2e/screenshots/
+e2e/seeded-data.json

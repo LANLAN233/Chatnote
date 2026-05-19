@@ -162,22 +162,29 @@ async def test_ws_events_all_six_emitted(monkeypatch):
         operation_id="daily_summary_test_001",
     )
 
-    # Verify HTTP response still includes stages
-    assert len(result["stages"]) == 3
+    # Verify HTTP response still includes stages (fetching_notes + 3 pipeline stages)
+    assert len(result["stages"]) == 4
     assert result["total_notes"] == 2
 
-    # Verify exactly 6 WS events
-    assert len(captured) == 6, f"Expected 6 WS events, got {len(captured)}"
+    # Verify exactly 7 WS events (fetching_notes completed + 3 stages × 2)
+    assert len(captured) == 7, f"Expected 7 WS events, got {len(captured)}"
 
-    # Event 0: extraction in_progress
+    # Event 0: fetching_notes completed
     ev = captured[0]
+    assert ev["stage"] == "fetching_notes"
+    assert ev["status"] == "completed"
+    assert ev["tier"] == "system"
+    assert isinstance(ev["duration_ms"], int)
+
+    # Event 1: extraction in_progress
+    ev = captured[1]
     assert ev["stage"] == "extraction"
     assert ev["status"] == "in_progress"
     assert ev["tier"] == "fast"
     assert ev["duration_ms"] is None
 
-    # Event 1: extraction completed
-    ev = captured[1]
+    # Event 2: extraction completed
+    ev = captured[2]
     assert ev["stage"] == "extraction"
     assert ev["status"] == "completed"
     assert ev["tier"] == "fast"
@@ -185,15 +192,15 @@ async def test_ws_events_all_six_emitted(monkeypatch):
     assert isinstance(ev["duration_ms"], int)
     assert ev["duration_ms"] >= 0
 
-    # Event 2: summary in_progress
-    ev = captured[2]
+    # Event 3: summary in_progress
+    ev = captured[3]
     assert ev["stage"] == "summary"
     assert ev["status"] == "in_progress"
     assert ev["tier"] == "strong"
     assert ev["duration_ms"] is None
 
-    # Event 3: summary completed
-    ev = captured[3]
+    # Event 4: summary completed
+    ev = captured[4]
     assert ev["stage"] == "summary"
     assert ev["status"] == "completed"
     assert ev["tier"] == "strong"
@@ -201,15 +208,15 @@ async def test_ws_events_all_six_emitted(monkeypatch):
     assert isinstance(ev["duration_ms"], int)
     assert ev["duration_ms"] >= 0
 
-    # Event 4: keywords in_progress
-    ev = captured[4]
+    # Event 5: keywords in_progress
+    ev = captured[5]
     assert ev["stage"] == "keywords"
     assert ev["status"] == "in_progress"
     assert ev["tier"] == "fast"
     assert ev["duration_ms"] is None
 
-    # Event 5: keywords completed
-    ev = captured[5]
+    # Event 6: keywords completed
+    ev = captured[6]
     assert ev["stage"] == "keywords"
     assert ev["status"] == "completed"
     assert ev["tier"] == "fast"
@@ -258,17 +265,17 @@ async def test_ws_events_correct_tiers(monkeypatch):
         operation_id="tier_test",
     )
 
-    assert len(captured) == 6
+    assert len(captured) == 7
 
     # in_progress events should have tier labels as model names
-    assert captured[0]["tier"] == "fast"    # extraction in_progress
-    assert captured[2]["tier"] == "strong"  # summary in_progress
-    assert captured[4]["tier"] == "fast"    # keywords in_progress
+    assert captured[1]["tier"] == "fast"    # extraction in_progress
+    assert captured[3]["tier"] == "strong"  # summary in_progress
+    assert captured[5]["tier"] == "fast"    # keywords in_progress
 
     # completed events should have correct tiers
-    assert captured[1]["tier"] == "fast"    # extraction completed
-    assert captured[3]["tier"] == "strong"  # summary completed
-    assert captured[5]["tier"] == "fast"    # keywords completed
+    assert captured[2]["tier"] == "fast"    # extraction completed
+    assert captured[4]["tier"] == "strong"  # summary completed
+    assert captured[6]["tier"] == "fast"    # keywords completed
 
 
 @pytest.mark.asyncio
@@ -310,7 +317,7 @@ async def test_ws_events_not_emitted_without_operation_id(monkeypatch):
     assert len(captured) == 0, f"Expected 0 WS events without operation_id, got {len(captured)}"
 
     # But HTTP response should still work
-    assert len(result["stages"]) == 3
+    assert len(result["stages"]) == 4
     assert result["total_notes"] == 1
 
 
@@ -346,10 +353,12 @@ async def test_ws_events_stage_failure_stops_events(monkeypatch):
         operation_id="fail_test",
     )
 
-    # Should have emitted extraction in_progress, but not completed
-    assert len(captured) == 1, f"Expected 1 WS event (in_progress only), got {len(captured)}"
-    assert captured[0]["stage"] == "extraction"
-    assert captured[0]["status"] == "in_progress"
+    # Should have emitted fetching_notes completed.
+    # extraction in_progress is NOT emitted because get_model_by_tier fails
+    # before the broadcast call.
+    assert len(captured) == 1, f"Expected 1 WS event, got {len(captured)}"
+    assert captured[0]["stage"] == "fetching_notes"
+    assert captured[0]["status"] == "completed"
 
 
 @pytest.mark.asyncio
@@ -387,7 +396,7 @@ async def test_ws_events_metadata_complete(monkeypatch):
         operation_id="meta_test",
     )
 
-    assert len(captured) == 6
+    assert len(captured) == 7
 
     # Verify every event has required fields
     required_keys = {"stage", "status", "model", "tier", "message"}
@@ -397,11 +406,11 @@ async def test_ws_events_metadata_complete(monkeypatch):
         assert ev["operation_id"] == "meta_test"
 
     # In-progress events should not have duration_ms
-    for i in (0, 2, 4):
+    for i in (1, 3, 5):
         assert captured[i]["duration_ms"] is None, f"in_progress event {i} should not have duration_ms"
 
     # Completed events must have duration_ms
-    for i in (1, 3, 5):
+    for i in (0, 2, 4, 6):
         assert isinstance(captured[i]["duration_ms"], int), f"completed event {i} must have duration_ms"
         assert captured[i]["duration_ms"] >= 0
 
@@ -442,12 +451,12 @@ async def test_ws_events_preserve_existing_stages_response(monkeypatch):
     )
 
     # HTTP response stages remain unchanged in structure
-    assert len(result["stages"]) == 3
+    assert len(result["stages"]) == 4
     for stage in result["stages"]:
         assert stage["status"] == "completed"
         assert "duration_ms" in stage
         assert isinstance(stage["duration_ms"], int)
-        assert stage["name"] in ("extraction", "summary", "keywords")
+        assert stage["name"] in ("fetching_notes", "extraction", "summary", "keywords")
 
     # Original return fields preserved
     assert "summary" in result

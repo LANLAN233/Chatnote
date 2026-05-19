@@ -42,9 +42,8 @@ class ExtractedKnowledge(BaseModel):
 
 
 class StructuredSummary(BaseModel):
-    """Stage 2 output: a polished daily learning summary."""
-
-    summary: str = Field(description="A concise, insightful summary of the day's learning (max 300 chars)")
+    """Stage 2 output: a polished summary of yesterday's learning."""
+    summary: str = Field(description="A concise, insightful summary of yesterday's learning (max 300 chars)")
     highlight_note_id: int | None = Field(description="Most important note ID of the day", default=None)
 
 
@@ -67,17 +66,17 @@ class PipelineResult(BaseModel):
 def create_summary_agent(model: OpenAIChat) -> Agent:
     return Agent(
         model=model,
-        name="Daily Summary Agent",
-        description="Generate a daily learning summary from a user's notes",
+        name="Yesterday's Summary Agent",
+        description="Generate a summary of yesterday's learning from a user's notes",
         system_message_role="system",
-        instructions="""You are a learning coach that helps students review their daily study progress.
+        instructions="""You are a learning coach that helps students review yesterday's study progress.
 
-Your task is to analyze the user's notes from a single day and generate:
-1. A concise, insightful summary highlighting the key learning themes
+Your task is to analyze the user's notes from yesterday and generate:
+1. A concise, insightful summary reflecting on yesterday's key learning themes
 2. 3-7 important keywords/concepts, each linked to the most relevant note IDs
 
 ## Rules
-- Summary should be engaging and motivational, like a coach's feedback
+- Summary should be reflective and motivational, like a coach reviewing yesterday's work
 - Extract specific, meaningful keywords (not generic words like "study" or "note")
 - Each keyword must reference the note IDs it appears in
 - Pick the single most important note as the highlight
@@ -158,7 +157,7 @@ async def generate_daily_summary(
             return {
                 "summary": result.summary,
                 "keywords": [k.model_dump() for k in result.keywords],
-                "total_notes": result.total_notes,
+                "total_notes": len(notes),
                 "highlight_note_id": result.highlight_note_id,
                 "is_fallback": False,
             }
@@ -170,7 +169,7 @@ async def generate_daily_summary(
                 return {
                     "summary": parsed.summary,
                     "keywords": [k.model_dump() for k in parsed.keywords],
-                    "total_notes": parsed.total_notes,
+                    "total_notes": len(notes),
                     "highlight_note_id": parsed.highlight_note_id,
                     "is_fallback": False,
                 }
@@ -281,17 +280,17 @@ def _create_pipeline_summary_agent(model: OpenAIChat) -> Agent:
     return Agent(
         model=model,
         name="Pipeline Summary Agent",
-        description="Generate a polished daily learning summary based on extracted knowledge",
+        description="Generate a polished summary of yesterday's learning based on extracted knowledge",
         system_message_role="system",
-        instructions="""You are a learning coach that helps students review their daily study progress.
+        instructions="""You are a learning coach that helps students review yesterday's study progress.
 
 You will receive the extracted knowledge points from Stage 1 of the pipeline. Your task is to:
-1. Synthesize the knowledge points into a concise, insightful daily summary (max 300 chars)
+1. Synthesize the knowledge points into a concise, insightful summary of yesterday's learning (max 300 chars)
 2. Pick the single most important note ID as the highlight
 
 ## Rules
-- Summary should be engaging and motivational, like a coach's feedback
-- Highlight the most impactful note — the one that represents the core learning of the day
+- Summary should be reflective and motivational, like a coach reviewing yesterday's work
+- Highlight the most impactful note — the one that represents the core learning of yesterday
 - If the extracted knowledge is sparse or unclear, still produce a helpful summary
 - Respond in the same language as the notes
 - If no extracted knowledge is provided, indicate that clearly
@@ -362,6 +361,10 @@ async def generate_daily_summary_pipeline(
     if target_date is None:
         target_date = date.today() - timedelta(days=1)
 
+    # Clean up any stale WebSocket progress events for this operation
+    if operation_id is not None:
+        manager.cleanup_operation(operation_id)
+
     # Fetch notes for the target date
     result = await db.execute(
         select(Note)
@@ -389,7 +392,29 @@ async def generate_daily_summary_pipeline(
         note_entries.append(f"[Note #{n.id}] {n.content[:300]}")
     notes_text = "\n\n".join(note_entries)
 
-    stages: list[dict[str, Any]] = []
+    # ── Stage 0: Fetching Notes (completed immediately) ──
+    t_fetch = time.time()
+    fetching_duration_ms = int((time.time() - t_fetch) * 1000)
+    stages: list[dict[str, Any]] = [{
+        "name": "fetching_notes",
+        "status": "completed",
+        "duration_ms": fetching_duration_ms,
+    }]
+    if operation_id is not None:
+        await manager.broadcast_ai_progress(
+            user_id=user_id,
+            operation_id=operation_id,
+            stage_data=AiProgressStage(
+                stage="fetching_notes",
+                status="completed",
+                model="system",
+                tier="system",
+                message=f"Fetched {len(notes)} notes from {target_date.isoformat()}",
+                metadata={"note_count": len(notes)},
+                duration_ms=fetching_duration_ms,
+            ),
+        )
+
     extracted: ExtractedKnowledge | None = None
     summary_result: StructuredSummary | None = None
     keyword_mapping: KeywordMapping | None = None
@@ -397,24 +422,25 @@ async def generate_daily_summary_pipeline(
     try:
         # ── Stage 1: Knowledge Extraction (fast model) ──
         t0 = time.time()
-        # WS: emit extraction in_progress
-        if operation_id is not None:
-            await manager.broadcast_ai_progress(
-                user_id=user_id,
-                operation_id=operation_id,
-                stage_data=AiProgressStage(
-                    stage="extraction",
-                    status="in_progress",
-                    model="fast",
-                    tier="fast",
-                    message="Extracting knowledge from notes...",
-                ),
-            )
         try:
             fast_model = await get_model_by_tier(user_id, db, "fast")
             if fast_model is None:
                 raise RuntimeError("No fast model available")
 
+            # WS: emit extraction in_progress (with resolved model name)
+            if operation_id is not None:
+                await manager.broadcast_ai_progress(
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    stage_data=AiProgressStage(
+                        stage="extraction",
+                        status="in_progress",
+                        model=fast_model.id,
+                        tier="fast",
+                        message=f"🧠 Extracting knowledge using {fast_model.id}...",
+                        metadata={"provider": getattr(fast_model, "provider", None)},
+                    ),
+                )
             agent1 = _create_extraction_agent(fast_model)
             response1 = await asyncio.wait_for(
                 agent1.arun(
@@ -439,8 +465,10 @@ async def generate_daily_summary_pipeline(
                         status="completed",
                         model=fast_model.id,
                         tier="fast",
-                        message="Knowledge extraction complete",
+                        message=f"Knowledge extraction complete — {len(extracted.concepts) if extracted else 0} concepts found",
                         duration_ms=extraction_duration_ms,
+                        progress_pct=100,
+                        metadata={"concepts_found": len(extracted.concepts) if extracted else 0},
                     ),
                 )
         except Exception as stage_err:
@@ -455,23 +483,25 @@ async def generate_daily_summary_pipeline(
 
         # ── Stage 2: Summary Generation (strong model) ──
         t1 = time.time()
-        # WS: emit summary in_progress
-        if operation_id is not None:
-            await manager.broadcast_ai_progress(
-                user_id=user_id,
-                operation_id=operation_id,
-                stage_data=AiProgressStage(
-                    stage="summary",
-                    status="in_progress",
-                    model="strong",
-                    tier="strong",
-                    message="Generating daily summary...",
-                ),
-            )
         try:
             strong_model = await get_model_by_tier(user_id, db, "strong")
             if strong_model is None:
                 raise RuntimeError("No strong model available")
+
+            # WS: emit summary in_progress (with resolved model name)
+            if operation_id is not None:
+                await manager.broadcast_ai_progress(
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    stage_data=AiProgressStage(
+                        stage="summary",
+                        status="in_progress",
+                        model=strong_model.id,
+                        tier="strong",
+                        message=f"✍️ Generating summary using {strong_model.id}...",
+                        metadata={"provider": getattr(strong_model, "provider", None)},
+                    ),
+                )
 
             agent2 = _create_pipeline_summary_agent(strong_model)
             concepts_text = "\n".join(f"- {c}" for c in extracted.concepts) if extracted else "(none)"
@@ -508,8 +538,9 @@ async def generate_daily_summary_pipeline(
                         status="completed",
                         model=strong_model.id,
                         tier="strong",
-                        message="Daily summary generated",
+                        message=f"Daily summary generated ({len(summary_result.summary) if summary_result else 0} chars)",
                         duration_ms=summary_duration_ms,
+                        progress_pct=100,
                     ),
                 )
         except Exception as stage_err:
@@ -524,23 +555,25 @@ async def generate_daily_summary_pipeline(
 
         # ── Stage 3: Keyword Extraction (fast model) ──
         t2 = time.time()
-        # WS: emit keywords in_progress
-        if operation_id is not None:
-            await manager.broadcast_ai_progress(
-                user_id=user_id,
-                operation_id=operation_id,
-                stage_data=AiProgressStage(
-                    stage="keywords",
-                    status="in_progress",
-                    model="fast",
-                    tier="fast",
-                    message="Extracting keywords...",
-                ),
-            )
         try:
             fast_model2 = await get_model_by_tier(user_id, db, "fast")
             if fast_model2 is None:
                 raise RuntimeError("No fast model available")
+
+            # WS: emit keywords in_progress (with resolved model name)
+            if operation_id is not None:
+                await manager.broadcast_ai_progress(
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    stage_data=AiProgressStage(
+                        stage="keywords",
+                        status="in_progress",
+                        model=fast_model2.id,
+                        tier="fast",
+                        message=f"🏷️ Extracting keywords using {fast_model2.id}...",
+                        metadata={"provider": getattr(fast_model2, "provider", None)},
+                    ),
+                )
 
             agent3 = _create_keyword_mapping_agent(fast_model2)
             concepts_text3 = "\n".join(f"- {c}" for c in extracted.concepts) if extracted else "(none)"
@@ -577,8 +610,9 @@ async def generate_daily_summary_pipeline(
                         status="completed",
                         model=fast_model2.id,
                         tier="fast",
-                        message="Keywords extracted",
+                        message=f"Keywords extracted — {len(keyword_mapping.keywords) if keyword_mapping else 0} found",
                         duration_ms=keywords_duration_ms,
+                        progress_pct=100,
                     ),
                 )
         except Exception as stage_err:

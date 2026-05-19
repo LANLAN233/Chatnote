@@ -537,7 +537,16 @@ async def daily_summary_regenerate(
     note_count = count_result.scalar()
 
     if note_count == 0:
-        return ApiResponse(success=True, data={"message": "No notes found for this date", "summary": None})
+        return ApiResponse(success=True, data={
+            "summary": None,
+            "keywords": [],
+            "total_notes": 0,
+            "highlight_note_id": None,
+            "stages": [],
+            "is_edited": False,
+            "created_at": None,
+            "updated_at": None,
+        })
 
     operation_id = f"daily_summary_regenerate_{current_user.id}_{target_date}"
     result = await generate_daily_summary_pipeline(current_user.id, db, target_date, operation_id)
@@ -572,10 +581,41 @@ async def daily_summary_regenerate(
             )
             db.add(ds)
         await db.commit()
+
+        # Re-fetch the persisted record to return DB-backed fields
+        # (includes is_edited, created_at, updated_at matching DailySummaryResponse)
+        stmt_refresh = select(DailySummary).where(
+            DailySummary.user_id == current_user.id,
+            DailySummary.date == target_date,
+        )
+        refreshed = (await db.execute(stmt_refresh)).scalar_one_or_none()
+        if refreshed:
+            keywords = json.loads(refreshed.keywords) if refreshed.keywords else []
+            stages = json.loads(refreshed.stages) if refreshed.stages else []
+            return ApiResponse(success=True, data={
+                "summary": refreshed.summary,
+                "keywords": keywords,
+                "total_notes": refreshed.total_notes,
+                "highlight_note_id": refreshed.highlight_note_id,
+                "stages": stages,
+                "is_edited": refreshed.is_edited,
+                "created_at": refreshed.created_at.isoformat() if refreshed.created_at else None,
+                "updated_at": refreshed.updated_at.isoformat() if refreshed.updated_at else None,
+            })
     else:
         logger.info("Regenerate: skipping DB persist for fallback result (user %d, date %s)", current_user.id, target_date)
 
-    return ApiResponse(success=True, data=result)
+    # Fallback or no DB record: return pipeline result with consistent format
+    return ApiResponse(success=True, data={
+        "summary": result.get("summary", ""),
+        "keywords": result.get("keywords", []),
+        "total_notes": result.get("total_notes", 0),
+        "highlight_note_id": result.get("highlight_note_id"),
+        "stages": result.get("stages", []),
+        "is_edited": False,
+        "created_at": None,
+        "updated_at": None,
+    })
 
 
 @router.put("/api/daily-summary", response_model=ApiResponse)
