@@ -32,6 +32,9 @@ frontend/.vite/
 # Archive
 /_archive/
 
+# Project docs (archived, not code)
+/docs/
+
 # Sisyphus tooling
 /.sisyphus/
 
