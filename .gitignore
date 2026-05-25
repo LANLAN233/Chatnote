@@ -1,6 +1,9 @@
 /demo
 /skills
 
+# Docker
+pgdata/
+
 # Backend
 __pycache__/
 *.pyc
