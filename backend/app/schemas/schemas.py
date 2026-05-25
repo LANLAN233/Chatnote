@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -156,6 +156,21 @@ class NoteResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NoteSearchResult(BaseModel):
+    """Search result with relevance scoring."""
+    note_id: int
+    content: str
+    score: float  # 0.0 to 1.0
+    source: str  # 'vector', 'fulltext', or 'hybrid'
+    channel_id: int | None = None
+    user_id: int | None = None
+    ai_summary: str | None = None
+    ai_tags: str | None = None
+    created_at: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class NoteListResponse(BaseModel):
     items: list[NoteResponse]
     total: int
@@ -273,9 +288,11 @@ class StatsResponse(BaseModel):
     recent_notes: list[NoteResponse]
 
 
-class ApiResponse(BaseModel):
+T = TypeVar('T')
+
+class ApiResponse(BaseModel, Generic[T]):
     success: bool
-    data: object | None = None
+    data: T | None = None
     message: str | None = None
 
 

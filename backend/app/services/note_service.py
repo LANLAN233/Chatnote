@@ -60,3 +60,29 @@ async def fetch_notes_for_context(
         formatted.append(f"[{channel_name}] {content}")
 
     return formatted
+
+
+async def fetch_notes_semantic(
+    db: AsyncSession,
+    query: str,
+    user_id: int,
+    limit: int = 10,
+) -> list[str]:
+    """Fetch notes by semantic similarity for RAG context.
+
+    Uses pgvector cosine similarity to find the most relevant notes
+    for the given query. Returns truncated content strings (max 500 chars).
+
+    Args:
+        db: Async database session
+        query: Natural language search query
+        user_id: Owner of the notes
+        limit: Maximum number of notes to return (default 10)
+
+    Returns:
+        List of truncated note content strings, sorted by relevance
+    """
+    from app.services.search import vector_search
+
+    results = await vector_search(query, user_id, db, limit)
+    return [r["content"][:500] for r in results]
