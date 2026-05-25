@@ -22,43 +22,44 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────
 
 
-async def search_notes_tool(query: str, user_id: int, db: AsyncSession) -> str:
-    """Search all user notes by keyword. Returns JSON with results."""
+async def search_notes_tool(query: str, user_id: int, db: AsyncSession, mode: str = "hybrid") -> str:
+    """Search notes using hybrid semantic + full-text search.
+
+    Args:
+        query: Natural language search query
+        user_id: User ID to scope search
+        db: Database session
+        mode: 'semantic' (vector only), 'keyword' (full-text only), or 'hybrid' (both, default)
+
+    Returns:
+        JSON string with search results including note_id, content, score, and source.
+    """
+    from app.services.search import fulltext_search, hybrid_search, vector_search
+
     if not query.strip():
         return json.dumps({"found": 0, "results": []})
 
-    result = await db.execute(
-        select(Note)
-        .where(Note.user_id == user_id, Note.content.ilike(f"%{query}%"))
-        .order_by(Note.created_at.desc())
-        .limit(20)
-    )
-    notes = result.scalars().all()
+    if mode == "semantic":
+        results = await vector_search(query, user_id, db, limit=10)
+    elif mode == "keyword":
+        results = await fulltext_search(query, user_id, db, limit=10)
+    else:
+        results = await hybrid_search(query, user_id, db, limit=10)
 
-    if not notes:
+    if not results:
         return json.dumps({"found": 0, "results": []})
 
-    note_ids = [n.channel_id for n in notes]
-    ch_result = await db.execute(select(Channel).where(Channel.id.in_(note_ids)))
-    channels = {c.id: c for c in ch_result.scalars().all()}
-
-    server_ids = [c.server_id for c in channels.values()]
-    srv_result = await db.execute(select(Server).where(Server.id.in_(server_ids)))
-    servers = {s.id: s for s in srv_result.scalars().all()}
-
-    results = []
-    for n in notes:
-        ch = channels.get(n.channel_id)
-        srv = servers.get(ch.server_id) if ch else None
-        results.append({
-            "id": n.id,
-            "preview": n.content[:100],
-            "server": srv.name if srv else "",
-            "channel": ch.name if ch else "",
-            "created_at": n.created_at.isoformat() if n.created_at else "",
+    formatted = []
+    for i, r in enumerate(results):
+        formatted.append({
+            "rank": i + 1,
+            "note_id": r["note_id"],
+            "content": r["content"][:300],
+            "relevance": round(r["score"], 3),
+            "source": r.get("source", mode),
         })
 
-    return json.dumps({"found": len(results), "results": results}, ensure_ascii=False)
+    return json.dumps(formatted, ensure_ascii=False)
 
 
 async def get_today_schedules_tool(user_id: int, db: AsyncSession) -> str:
@@ -143,18 +144,19 @@ async def dispatch_plugin_command(command: str, args: list[str], user_id: int) -
 # ─────────────────────────────────────────────────────────────────────
 
 
-def make_search_notes_tool(db: AsyncSession, user_id: int) -> Callable[..., Any]:
+def make_search_notes_tool(db: AsyncSession, user_id: int, mode: str = "hybrid") -> Callable[..., Any]:
     """Factory: returns an agno-compatible search_notes tool (closure over db, user_id).
 
     The returned callable expects a single ``query: str`` argument and returns JSON.
+    Supports 'semantic', 'keyword', or 'hybrid' (default) search mode.
     """
 
     async def search_notes(query: str) -> str:
-        return await search_notes_tool(query, user_id, db)
+        return await search_notes_tool(query, user_id, db, mode)
 
     # Attach metadata that agno may inspect (name, description)
     search_notes.__name__ = "search_notes"
-    search_notes.__doc__ = "Search all user notes by keyword. Returns JSON with results."
+    search_notes.__doc__ = "Search all user notes using hybrid semantic + full-text search. Returns JSON with results."
     return search_notes
 
 

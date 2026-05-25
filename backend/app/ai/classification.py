@@ -487,3 +487,12 @@ async def resolve_classification(
     classification["server_id"] = server.id
     classification["channel_id"] = channel.id
     return classification
+
+
+async def _semantic_tag_suggestion(note_content: str, db: AsyncSession) -> list[str]:
+    """Use embedding similarity to suggest tags based on existing notes.
+
+    Optional enhancement. Currently returns an empty list — the placeholder
+    is available for future integration with the two-model ensemble pipeline.
+    """
+    return []

@@ -78,6 +78,21 @@ class QuerySkill(BaseSkill):
             if len(raw_notes) > FETCH_LIMIT * 2:
                 raw_notes = raw_notes[:FETCH_LIMIT * 2]
 
+        # -----------------------------------------------------------------
+        # 1b. Semantic search (parallel source via vector similarity)
+        # -----------------------------------------------------------------
+        semantic_notes: list[str] = []
+        try:
+            from app.services.search import vector_search
+            semantic_results = await vector_search(question, context.user_id, db, limit=10)
+            semantic_notes = [r["content"] for r in semantic_results]
+        except Exception:
+            pass  # gracefully fall back to recent notes only
+
+        # Merge: semantic notes first, then deduplicated recent notes
+        if semantic_notes:
+            raw_notes = semantic_notes + [n for n in raw_notes if n not in semantic_notes]
+
         if not raw_notes:
             scope = f"#{channel_name}" if channel_name else f"@{server_name}"
             return SkillResult(
@@ -87,7 +102,21 @@ class QuerySkill(BaseSkill):
             )
 
         # -----------------------------------------------------------------
-        # 2. Stage 1 — Retrieval Agent (fast model)
+        # 2. Fetch models upfront (DB reads — release before LLM calls)
+        # -----------------------------------------------------------------
+        fast_model = await get_model_by_tier(context.user_id, db, tier="fast")
+        if fast_model is None:
+            fast_model = context.model  # fallback
+
+        strong_model = await get_model_by_tier(context.user_id, db, tier="strong")
+        if strong_model is None:
+            strong_model = context.model  # fallback
+
+        # RELEASE DB CONNECTION before LLM API calls (5-30s each)
+        await db.close()
+
+        # -----------------------------------------------------------------
+        # 3. Stage 1 — Retrieval Agent (fast model)
         #    Select Top-5 most relevant notes from the fetched set
         # -----------------------------------------------------------------
         # Emit progress: retrieval start
@@ -105,10 +134,6 @@ class QuerySkill(BaseSkill):
                     message="Searching notes...",
                 ),
             )
-
-        fast_model = await get_model_by_tier(context.user_id, db, tier="fast")
-        if fast_model is None:
-            fast_model = context.model  # fallback
 
         top_notes = await self._retrieve_top_notes(
             fast_model, question, raw_notes, server_name, channel_name
@@ -131,13 +156,9 @@ class QuerySkill(BaseSkill):
             )
 
         # -----------------------------------------------------------------
-        # 3. Stage 2 — Answer Agent (strong model)
+        # 4. Stage 2 — Answer Agent (strong model)
         #    Generate answer based on Top-5 notes + original question
         # -----------------------------------------------------------------
-        strong_model = await get_model_by_tier(context.user_id, db, tier="strong")
-        if strong_model is None:
-            strong_model = context.model  # fallback
-
         # Emit progress: answer generation start
         t_answer_start: float | None = None
         if context.ws_manager and context.operation_id and context.user_id:
@@ -174,7 +195,7 @@ class QuerySkill(BaseSkill):
             )
 
         # -----------------------------------------------------------------
-        # 4. Build source citations and confidence
+        # 5. Build source citations and confidence
         # -----------------------------------------------------------------
         sources = self._build_sources(raw_notes, top_notes, server_name)
         confidence = self._estimate_confidence(top_notes, raw_notes)

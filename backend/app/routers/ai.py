@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.classification import classify_note, resolve_classification
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models.models import Channel, DailySummary, InboxItem, Note, Server, User
 from app.routers.auth import get_current_user
 from app.schemas.ai_progress import AiProgressStage
@@ -35,7 +35,10 @@ async def ai_classify(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await classify_note(req.content, db, current_user.id)
+    # Release injected session before LLM call (classify_note makes LLM API calls)
+    await db.close()
+    async with async_session() as fresh_db:
+        result = await classify_note(req.content, fresh_db, current_user.id)
     return ApiResponse(success=True, data=result)
 
 
@@ -118,12 +121,57 @@ async def smart_create_note(
             if channel:
                 channel_id = channel.id
     elif not channel_id and req.auto_classify:
-        classification = await classify_note(
-            parsed.content, db, current_user.id,
+        # Phase 1 complete: commit any pending DB work and release connection
+        await db.commit()
+        await db.close()
+
+        # Phase 2: LLM classification (NO DB connection held during 5-30s API calls)
+        async with async_session() as classify_db:
+            classification = await classify_note(
+                parsed.content, classify_db, current_user.id,
+            )
+            classification = await resolve_classification(classification, classify_db, current_user.id)
+            await classify_db.commit()
+            _server_id = classification.get("server_id")
+            _channel_id = classification.get("channel_id")
+
+        # Phase 3: Note creation with fresh connection (re-acquire after LLM)
+        async with async_session() as write_db:
+            if not _channel_id:
+                if not _server_id:
+                    server = Server(user_id=current_user.id, name="General")
+                    write_db.add(server)
+                    await write_db.flush()
+                    await write_db.refresh(server)
+                    _server_id = server.id
+                channel = Channel(server_id=_server_id, name="General")
+                write_db.add(channel)
+                await write_db.flush()
+                await write_db.refresh(channel)
+                _channel_id = channel.id
+
+            note = Note(
+                channel_id=_channel_id,
+                user_id=current_user.id,
+                content=parsed.content,
+                content_type="markdown",
+                raw_input=parsed.raw_input or req.content,
+            )
+            write_db.add(note)
+            await write_db.flush()
+            await write_db.refresh(note)
+            await write_db.refresh(note, ["attachments"])
+            await write_db.commit()
+
+        return ApiResponse(
+            success=True,
+            data={
+                "note": NoteResponse.model_validate(note).model_dump(),
+                "server_id": _server_id,
+                "channel_id": _channel_id,
+            },
+            message="Note created",
         )
-        classification = await resolve_classification(classification, db, current_user.id)
-        server_id = classification.get("server_id")
-        channel_id = classification.get("channel_id")
     elif not channel_id:
         srv_result = await db.execute(
             select(Server)
@@ -355,6 +403,9 @@ async def import_schedule(
 
     has_image = bool(req.image_url)
     model = await get_model_for_user(current_user.id, db, use_vision=has_image)
+
+    # Release DB connection before LLM calls (5-30s per call)
+    await db.close()
 
     # ── Auto-switch/fallback for image imports ─
     if has_image:

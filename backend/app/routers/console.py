@@ -230,14 +230,15 @@ async def _save_message(
 async def _route_query_skill(
     parsed,
     user_id: int,
-    db: AsyncSession,
+    db: AsyncSession | None = None,
     known_server_id: int | None = None,
     known_server_name: str | None = None,
     loaded_notes: list[str] | None = None,
 ) -> dict | None:
     """Route @Server #Channel question patterns to the $query skill.
 
-    Resolves server/channel names to IDs, then dispatches to the query skill.
+    Resolves server/channel names to IDs using its own database session
+    (release-before-LLM pattern), then dispatches to the query skill.
     Returns None if resolution fails (e.g., server not found).
     """
     server_id = known_server_id
@@ -245,29 +246,30 @@ async def _route_query_skill(
     channel_id = None
     channel_name = None
 
-    # Resolve server name if not already known
-    if not server_id and parsed.server_name:
-        result = await db.execute(
-            select(Server).where(Server.user_id == user_id, Server.name == parsed.server_name)
-        )
-        srv = result.scalar_one_or_none()
-        if not srv:
-            return None  # Server not found → fall through to note creation
-        server_id = srv.id
-        server_name = srv.name
+    # Resolve server/channel names with a fresh, short-lived session
+    if (not server_id and parsed.server_name) or parsed.channel_name:
+        async with async_session() as resolve_db:
+            if not server_id and parsed.server_name:
+                result = await resolve_db.execute(
+                    select(Server).where(Server.user_id == user_id, Server.name == parsed.server_name)
+                )
+                srv = result.scalar_one_or_none()
+                if not srv:
+                    return None  # Server not found → fall through to note creation
+                server_id = srv.id
+                server_name = srv.name
 
-    if not server_id:
-        return None
+            if not server_id:
+                return None
 
-    # Resolve channel name if present
-    if parsed.channel_name:
-        result = await db.execute(
-            select(Channel).where(Channel.server_id == server_id, Channel.name == parsed.channel_name)
-        )
-        ch = result.scalar_one_or_none()
-        if ch:
-            channel_id = ch.id
-            channel_name = ch.name
+            if parsed.channel_name:
+                result = await resolve_db.execute(
+                    select(Channel).where(Channel.server_id == server_id, Channel.name == parsed.channel_name)
+                )
+                ch = result.scalar_one_or_none()
+                if ch:
+                    channel_id = ch.id
+                    channel_name = ch.name
 
     question = parsed.content.strip()
     if not question:
@@ -277,7 +279,7 @@ async def _route_query_skill(
         "query",
         question,
         user_id,
-        db,
+        None,  # db is managed internally by _dispatch_skill
         server_context={
             "server_id": server_id,
             "server_name": server_name or "Unknown",
@@ -401,33 +403,39 @@ async def _dispatch_skill(
     skill_name: str,
     skill_args: str,
     user_id: int,
-    db: AsyncSession,
+    db: AsyncSession | None = None,  # kept for backward compat, ignored
     server_context: dict | None = None,
     loaded_notes: list[str] | None = None,
     operation_id: str | None = None,
 ) -> dict:
-    model = await get_model_for_user(user_id, db)
-    if model is None:
-        return {"type": "error", "content": "No AI model configured. Add an API key in Settings."}
+    """Dispatch a skill with its own database session (release-before-LLM pattern).
 
-    context = SkillContext(
-        user_id=user_id,
-        db=db,
-        model=model,
-        server_context=server_context,
-        loaded_notes=loaded_notes,
-        ws_manager=ws_manager,
-        operation_id=operation_id,
-    )
-    try:
-        result = await skill_registry.dispatch(skill_name, skill_args, context)
-        return {"type": result.type, "content": result.content, "data": result.data}
-    except Exception as exc:
-        logger.error("Skill %s dispatch failed: %s", skill_name, exc, exc_info=True)
-        return {
-            "type": "error",
-            "content": f"Skill ${skill_name} failed: {exc}. Please check your API key.",
-        }
+    Creates a fresh AsyncSession internally so the caller's session is NOT held
+    during the skill's LLM API calls (which can take 5–30 seconds).
+    """
+    async with async_session() as skill_db:
+        model = await get_model_for_user(user_id, skill_db)
+        if model is None:
+            return {"type": "error", "content": "No AI model configured. Add an API key in Settings."}
+
+        context = SkillContext(
+            user_id=user_id,
+            db=skill_db,
+            model=model,
+            server_context=server_context,
+            loaded_notes=loaded_notes,
+            ws_manager=ws_manager,
+            operation_id=operation_id,
+        )
+        try:
+            result = await skill_registry.dispatch(skill_name, skill_args, context)
+            return {"type": result.type, "content": result.content, "data": result.data}
+        except Exception as exc:
+            logger.error("Skill %s dispatch failed: %s", skill_name, exc, exc_info=True)
+            return {
+                "type": "error",
+                "content": f"Skill ${skill_name} failed: {exc}. Please check your API key.",
+            }
 
 
 async def _generate_and_update_title(
@@ -610,15 +618,21 @@ async def console_execute(
             message=f"Dispatching to skill: {parsed.skill_name}",
             metadata={"skill": parsed.skill_name}
         ))
+        # Release DB connection before skill dispatch (skill makes 5-30s LLM calls)
+        await db.close()
+
         t_skill = time.time()
-        result = await _dispatch_skill(parsed.skill_name, parsed.skill_args, current_user.id, db, loaded_notes=loaded_notes, operation_id=operation_id)
+        result = await _dispatch_skill(parsed.skill_name, parsed.skill_args, current_user.id, None, loaded_notes=loaded_notes, operation_id=operation_id)
         await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
             stage="skill_execution", status="completed", model="", tier="",
             message=f"Skill {parsed.skill_name} completed",
             metadata={"skill": parsed.skill_name, "result_type": result.get("type", "unknown")},
             duration_ms=int((time.time() - t_skill) * 1000)
         ))
-        await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
+        # Re-acquire connection for response save (Phase 3: Write)
+        async with async_session() as save_db:
+            await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), save_db)
+            await save_db.commit()
         ws_manager.cleanup_operation(operation_id)
         return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
@@ -643,9 +657,12 @@ async def console_execute(
                 message="Dispatching to skill: query",
                 metadata={"skill": "query", "routed_by": "pattern"}
             ))
+            # Release DB connection before query dispatch (LLM calls inside)
+            await db.close()
+
             t_query = time.time()
             query_result = await _route_query_skill(
-                parsed, current_user.id, db, loaded_notes=loaded_notes,
+                parsed, current_user.id, None, loaded_notes=loaded_notes,
             )
             if query_result is not None:
                 await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
@@ -654,12 +671,15 @@ async def console_execute(
                     metadata={"skill": "query"},
                     duration_ms=int((time.time() - t_query) * 1000)
                 ))
-                await _save_message(
-                    session.id, "assistant",
-                    query_result.get("content", ""),
-                    query_result.get("type", "text"),
-                    db,
-                )
+                # Re-acquire connection for response save (Phase 3: Write)
+                async with async_session() as save_db:
+                    await _save_message(
+                        session.id, "assistant",
+                        query_result.get("content", ""),
+                        query_result.get("type", "text"),
+                        save_db,
+                    )
+                    await save_db.commit()
                 ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=True,
@@ -705,6 +725,9 @@ async def console_execute(
     if req.ai_enabled:
         model = await get_model_for_user(current_user.id, db)
         if model is not None:
+            # Release DB connection before LLM calls (analyze_intent + skill dispatch)
+            await db.close()
+
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="intent_analysis", status="in_progress", model="fast-tier", tier="fast",
                 message="Analyzing intent..."
@@ -731,7 +754,7 @@ async def console_execute(
                     intent_result.skill_name,
                     intent_result.args or req.input,
                     current_user.id,
-                    db,
+                    None,  # _dispatch_skill manages its own session
                     loaded_notes=loaded_notes,
                     operation_id=operation_id,
                 )
@@ -741,12 +764,15 @@ async def console_execute(
                     metadata={"skill": intent_result.skill_name, "result_type": skill_result.get("type", "unknown")},
                     duration_ms=int((time.time() - t_dispatch) * 1000)
                 ))
-                await _save_message(
-                    session.id, "assistant",
-                    skill_result.get("content", ""),
-                    skill_result.get("type", "text"),
-                    db,
-                )
+                # Re-acquire connection for response save (Phase 3: Write)
+                async with async_session() as save_db:
+                    await _save_message(
+                        session.id, "assistant",
+                        skill_result.get("content", ""),
+                        skill_result.get("type", "text"),
+                        save_db,
+                    )
+                    await save_db.commit()
                 ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=True,
@@ -771,6 +797,7 @@ async def console_execute(
     )
 
     # Create the note via smart classification
+    # (smart_create_note internally closes/releases db before any LLM classification calls)
     smart_req = NoteCreateWithClassify(
         content=req.input,
         server_name=None,
@@ -785,12 +812,15 @@ async def console_execute(
         if isinstance(note_result.data, dict):
             note_result.data["plugin_responses"] = plugin_responses
 
-    # Save assistant response (note creation result)
-    if note_result.data and isinstance(note_result.data, dict) and "note" in note_result.data:
-        await _save_message(session.id, "assistant", "Note saved successfully.", "note", db)
-    else:
-        content = note_result.message or "Note processed."
-        await _save_message(session.id, "assistant", content, "text", db)
+    # Re-acquire connection for response save (db may have been closed by smart_create_note)
+    async with async_session() as save_db:
+        # Save assistant response (note creation result)
+        if note_result.data and isinstance(note_result.data, dict) and "note" in note_result.data:
+            await _save_message(session.id, "assistant", "Note saved successfully.", "note", save_db)
+        else:
+            content = note_result.message or "Note processed."
+            await _save_message(session.id, "assistant", content, "text", save_db)
+        await save_db.commit()
 
     if isinstance(note_result.data, dict):
         note_result.data["session_id"] = session.id
@@ -863,9 +893,12 @@ async def server_console_execute(
             message=f"Dispatching to skill: {parsed.skill_name}",
             metadata={"skill": parsed.skill_name}
         ))
+        # Release DB connection before skill dispatch (skill makes 5-30s LLM calls)
+        await db.close()
+
         t_skill = time.time()
         result = await _dispatch_skill(
-            parsed.skill_name, parsed.skill_args, current_user.id, db,
+            parsed.skill_name, parsed.skill_args, current_user.id, None,
             server_context={"server_id": server_id, "server_name": server.name},
             loaded_notes=loaded_notes,
             operation_id=operation_id,
@@ -876,7 +909,10 @@ async def server_console_execute(
             metadata={"skill": parsed.skill_name, "result_type": result.get("type", "unknown")},
             duration_ms=int((time.time() - t_skill) * 1000)
         ))
-        await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), db)
+        # Re-acquire connection for response save (Phase 3: Write)
+        async with async_session() as save_db:
+            await _save_message(session.id, "assistant", result.get("content", ""), result.get("type", "text"), save_db)
+            await save_db.commit()
         ws_manager.cleanup_operation(operation_id)
         return ApiResponse(success=True, data={**result, "session_id": session.id, "operation_id": operation_id})
 
@@ -901,17 +937,22 @@ async def server_console_execute(
         if parsed.content.strip() and (not parsed.channel_name or _has_question):
             query_channel_id = None
             query_channel_name = None
+            # Resolve channel with a fresh, short-lived session
             if parsed.channel_name:
-                ch_result = await db.execute(
-                    select(Channel).where(
-                        Channel.server_id == server_id,
-                        Channel.name == parsed.channel_name,
+                async with async_session() as resolve_db:
+                    ch_result = await resolve_db.execute(
+                        select(Channel).where(
+                            Channel.server_id == server_id,
+                            Channel.name == parsed.channel_name,
+                        )
                     )
-                )
-                ch = ch_result.scalar_one_or_none()
-                if ch:
-                    query_channel_id = ch.id
-                    query_channel_name = ch.name
+                    ch = ch_result.scalar_one_or_none()
+                    if ch:
+                        query_channel_id = ch.id
+                        query_channel_name = ch.name
+
+            # Release DB connection before dispatch (LLM calls inside)
+            await db.close()
 
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="skill_dispatch", status="in_progress", model="", tier="",
@@ -923,7 +964,7 @@ async def server_console_execute(
                 "query",
                 parsed.content.strip(),
                 current_user.id,
-                db,
+                None,  # _dispatch_skill manages its own session
                 server_context={
                     "server_id": server_id,
                     "server_name": server.name,
@@ -939,12 +980,15 @@ async def server_console_execute(
                 metadata={"skill": "query"},
                 duration_ms=int((time.time() - t_query) * 1000)
             ))
-            await _save_message(
-                session.id, "assistant",
-                query_result.get("content", ""),
-                query_result.get("type", "text"),
-                db,
-            )
+            # Re-acquire connection for response save (Phase 3: Write)
+            async with async_session() as save_db:
+                await _save_message(
+                    session.id, "assistant",
+                    query_result.get("content", ""),
+                    query_result.get("type", "text"),
+                    save_db,
+                )
+                await save_db.commit()
             ws_manager.cleanup_operation(operation_id)
             return ApiResponse(
                 success=True,
@@ -992,6 +1036,9 @@ async def server_console_execute(
     if req.ai_enabled:
         model = await get_model_for_user(current_user.id, db)
         if model is not None:
+            # Release DB connection before LLM calls (analyze_intent + skill dispatch)
+            await db.close()
+
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="intent_analysis", status="in_progress", model="fast-tier", tier="fast",
                 message="Analyzing intent..."
@@ -1017,7 +1064,7 @@ async def server_console_execute(
                     intent_result.skill_name,
                     intent_result.args or req.input,
                     current_user.id,
-                    db,
+                    None,  # _dispatch_skill manages its own session
                     server_context={"server_id": server_id, "server_name": server.name},
                     loaded_notes=loaded_notes,
                     operation_id=operation_id,
@@ -1028,12 +1075,15 @@ async def server_console_execute(
                     metadata={"skill": intent_result.skill_name, "result_type": skill_result.get("type", "unknown")},
                     duration_ms=int((time.time() - t_dispatch) * 1000)
                 ))
-                await _save_message(
-                    session.id, "assistant",
-                    skill_result.get("content", ""),
-                    skill_result.get("type", "text"),
-                    db,
-                )
+                # Re-acquire connection for response save (Phase 3: Write)
+                async with async_session() as save_db:
+                    await _save_message(
+                        session.id, "assistant",
+                        skill_result.get("content", ""),
+                        skill_result.get("type", "text"),
+                        save_db,
+                    )
+                    await save_db.commit()
                 ws_manager.cleanup_operation(operation_id)
                 return ApiResponse(
                     success=True,
@@ -1060,11 +1110,14 @@ async def server_console_execute(
     )
     note_result = await smart_create_note(smart_req, current_user, db)
 
-    if note_result.data and isinstance(note_result.data, dict) and "note" in note_result.data:
-        await _save_message(session.id, "assistant", "Note saved successfully.", "note", db)
-    else:
-        content = note_result.message or "Note processed."
-        await _save_message(session.id, "assistant", content, "text", db)
+    # Re-acquire connection for response save (db may have been closed by smart_create_note)
+    async with async_session() as save_db:
+        if note_result.data and isinstance(note_result.data, dict) and "note" in note_result.data:
+            await _save_message(session.id, "assistant", "Note saved successfully.", "note", save_db)
+        else:
+            content = note_result.message or "Note processed."
+            await _save_message(session.id, "assistant", content, "text", save_db)
+        await save_db.commit()
 
     if isinstance(note_result.data, dict):
         note_result.data["session_id"] = session.id
