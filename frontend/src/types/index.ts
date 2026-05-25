@@ -89,6 +89,20 @@ export interface NoteList {
   page_size: number;
 }
 
+export type SearchSource = 'vector' | 'fulltext' | 'hybrid';
+
+export interface NoteSearchResult {
+  note_id: number;
+  content: string;
+  score: number;
+  source: SearchSource;
+  channel_id?: number | null;
+  user_id?: number | null;
+  ai_summary?: string | null;
+  ai_tags?: string | null;
+  created_at?: string | null;
+}
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data: T | null;

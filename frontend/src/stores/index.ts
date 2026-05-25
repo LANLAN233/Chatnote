@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { authApi, serverApi, channelApi, noteApi, aiApi, settingsApi, apiKeyApi, threadApi } from "../services";
 import wsService from "../services/websocket";
-import type { Channel, Note, NoteList, Server, SmartCreateResult, ThreadResponse, User, UserApiKey, UserSettingsUpdate } from "../types";
+import type { Channel, Note, NoteList, NoteSearchResult, Server, SmartCreateResult, ThreadResponse, User, UserApiKey, UserSettingsUpdate } from "../types";
 
 interface AuthState {
   user: User | null;
@@ -191,7 +191,7 @@ interface NoteState {
   smartCreateNote: (content: string, autoClassify?: boolean) => Promise<void>;
   updateNote: (id: number, data: { content?: string }) => Promise<void>;
   deleteNote: (id: number) => Promise<void>;
-  searchNotes: (query: string) => Promise<Note[]>;
+  searchNotes: (query: string) => Promise<NoteSearchResult[]>;
   addRealtimeNote: (note: Note) => void;
   updateRealtimeNote: (note: Note) => void;
   removeRealtimeNote: (noteId: number) => void;
@@ -260,7 +260,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
   searchNotes: async (query) => {
     const { data } = await noteApi.search(query);
-    return (data.data as Note[]) || [];
+    return (data.data as NoteSearchResult[]) || [];
   },
   addRealtimeNote: (note) => {
     set((state) => ({
