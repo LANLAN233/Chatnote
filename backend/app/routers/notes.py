@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -6,10 +6,31 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.models import Channel, Note, Server, Thread, User
 from app.routers.auth import get_current_user
-from app.schemas.schemas import ApiResponse, NoteCreate, NoteListResponse, NoteResponse, NoteUpdate, ThreadCreate, ThreadMessageCreate, ThreadResponse
+from app.schemas.schemas import ApiResponse, NoteCreate, NoteListResponse, NoteResponse, NoteSearchResult, NoteUpdate, ThreadCreate, ThreadMessageCreate, ThreadResponse
+from app.services.embedding import EmbeddingService
+from app.services.search import hybrid_search
 from app.services.websocket import manager as ws_manager
 
 router = APIRouter(tags=["notes"])
+
+
+async def _generate_note_embedding(note_id: int, content: str):
+    """Background task to generate embedding for a note."""
+    import logging
+
+    from app.database import async_session
+
+    _logger = logging.getLogger(__name__)
+    async with async_session() as db:
+        try:
+            await EmbeddingService.get_or_create_embedding(note_id, content, db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            _logger.warning(
+                "Failed to generate embedding for note %d (API key may not be configured)",
+                note_id,
+            )
 
 
 @router.get("/api/channels/{channel_id}/notes", response_model=ApiResponse)
@@ -48,6 +69,7 @@ async def list_notes(
 @router.post("/api/notes", response_model=ApiResponse, status_code=201)
 async def create_note(
     note_in: NoteCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -76,44 +98,30 @@ async def create_note(
     
     # Broadcast via WebSocket
     await ws_manager.broadcast_note_created(current_user.id, NoteResponse.model_validate(note).model_dump())
-    
+
+    # Trigger embedding generation in background
+    background_tasks.add_task(_generate_note_embedding, note.id, note.content)
+
     return ApiResponse(success=True, data=NoteResponse.model_validate(note).model_dump(), message="Note created")
 
 
-@router.get("/api/notes/search", response_model=ApiResponse)
+@router.get("/api/notes/search", response_model=ApiResponse[list[NoteSearchResult]])
 async def search_notes(
-    q: str = Query(..., min_length=1),
+    q: str = Query(..., min_length=1, description="Search query"),
+    mode: str = Query("hybrid", description="Search mode: hybrid, vector, fulltext"),
+    limit: int = Query(10, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    fts_ids = []
-    try:
-        from app.services.search import fts_search
-        fts_ids = await fts_search(db, q, current_user.id, 20)
-    except Exception:
-        pass
-
-    if fts_ids:
-        result = await db.execute(
-            select(Note)
-            .options(selectinload(Note.attachments))
-            .options(selectinload(Note.reply_to))
-            .where(Note.id.in_(fts_ids), Note.user_id == current_user.id)
-            .order_by(Note.created_at.desc())
-        )
-    else:
-        result = await db.execute(
-            select(Note)
-            .options(selectinload(Note.attachments))
-            .options(selectinload(Note.reply_to))
-            .where(Note.user_id == current_user.id, Note.content.ilike(f"%{q}%"))
-            .order_by(Note.created_at.desc())
-        )
-    notes = result.scalars().all()
-    return ApiResponse(
-        success=True,
-        data=[NoteResponse.model_validate(n).model_dump() for n in notes],
+    """Search notes with hybrid semantic + full-text search."""
+    results = await hybrid_search(
+        query=q,
+        user_id=current_user.id,
+        db=db,
+        limit=limit,
+        mode=mode,
     )
+    return ApiResponse(data=results, message=f"Found {len(results)} notes")
 
 
 @router.get("/api/notes/{note_id}", response_model=ApiResponse)
@@ -138,6 +146,7 @@ async def get_note(
 async def update_note(
     note_id: int,
     note_in: NoteUpdate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -151,6 +160,7 @@ async def update_note(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     update_data = note_in.model_dump(exclude_unset=True)
+    content_changed = "content" in update_data
     for key, value in update_data.items():
         setattr(note, key, value)
     note.is_edited = True
@@ -160,6 +170,10 @@ async def update_note(
     
     # Broadcast via WebSocket
     await ws_manager.broadcast_note_updated(current_user.id, NoteResponse.model_validate(note).model_dump())
+
+    # Regenerate embedding if content changed
+    if content_changed:
+        background_tasks.add_task(_generate_note_embedding, note.id, note.content)
     
     return ApiResponse(success=True, data=NoteResponse.model_validate(note).model_dump(), message="Note updated")
 
