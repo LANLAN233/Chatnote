@@ -1,6 +1,7 @@
 from datetime import date, datetime, time
 
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -86,12 +87,12 @@ class Note(Base):
     ai_category: Mapped[str | None] = mapped_column(String, nullable=True)
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    ai_tags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_tags: Mapped[str | None] = mapped_column(JSONB, nullable=True)
     thread_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("threads.id", ondelete="CASCADE"), nullable=True)
     # Phase 12: message interactions
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     reply_to_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
-    user_tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    user_tags: Mapped[str | None] = mapped_column(JSONB, nullable=True)  # JSON array
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -101,6 +102,7 @@ class Note(Base):
     attachments: Mapped[list["Attachment"]] = relationship("Attachment", back_populates="note", cascade="all, delete-orphan")
     thread: Mapped["Thread | None"] = relationship(back_populates="notes", foreign_keys=[thread_id])
     reply_to: Mapped["Note | None"] = relationship("Note", remote_side="Note.id", backref="replies")
+    embedding_record: Mapped["NoteEmbedding | None"] = relationship("NoteEmbedding", back_populates="note", uselist=False, cascade="all, delete-orphan")
 
 
 class Thread(Base):
@@ -133,7 +135,7 @@ class Schedule(Base):
     end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     date: Mapped[date | None] = mapped_column(Date, nullable=True)
     day_of_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    repeat_rule: Mapped[str | None] = mapped_column(Text, nullable=True)
+    repeat_rule: Mapped[str | None] = mapped_column(JSONB, nullable=True)
     reminder_minutes: Mapped[int] = mapped_column(Integer, default=15)
     color: Mapped[str] = mapped_column(String, default="#5865f2")
     is_all_day: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -153,7 +155,7 @@ class Plugin(Base):
     source_path: Mapped[str] = mapped_column(String, nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
-    config: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON config data
+    config: Mapped[str | None] = mapped_column(JSONB, nullable=True)  # JSON config data
     installed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -213,10 +215,10 @@ class DailySummary(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    keywords: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    keywords: Mapped[str | None] = mapped_column(JSONB, nullable=True)  # JSON
     total_notes: Mapped[int] = mapped_column(Integer, default=0)
     highlight_note_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    stages: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    stages: Mapped[str | None] = mapped_column(JSONB, nullable=True)  # JSON
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

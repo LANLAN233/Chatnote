@@ -4,7 +4,16 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL, echo=settings.DEBUG)
+# PostgreSQL connection pool configuration
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=settings.DEBUG,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
+
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -23,13 +32,9 @@ async def get_db():
 
 
 async def init_db():
+    """Initialize PostgreSQL with pgvector extension and create all tables."""
     async with engine.begin() as conn:
+        # Create pgvector extension first (required before vector columns)
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        # Create all tables from SQLAlchemy metadata
         await conn.run_sync(Base.metadata.create_all)
-        try:
-            await conn.execute(text("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-                    content, content='notes', content_rowid='id'
-                )
-            """))
-        except Exception:
-            pass
