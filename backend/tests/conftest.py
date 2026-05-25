@@ -11,6 +11,8 @@ from app.main import app
 from app.models.models import Channel, Note, Server, User
 from app.plugins import plugin_manager
 
+# In CI/Docker, override this to point to a PostgreSQL test database.
+# For local testing without PG running, consider using SQLite or a test container.
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
