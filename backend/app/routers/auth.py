@@ -65,6 +65,10 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.flush()
     await db.refresh(user)
+    # Explicit commit so the user is persisted before the token is issued.
+    # Without this, the user only exists in the transaction and a concurrent
+    # login request in a different session cannot find them.
+    await db.commit()
     token = create_access_token({"sub": str(user.id)})
     return ApiResponse(
         success=True,
