@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { useAuthStore } from "../../stores";
 import { settingsApi, apiKeyApi } from "../../services";
-import { X, User, Key, Bell, Palette, Database, Brain, Shield, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, EyeOff } from "lucide-react";
+import { X, User, Key, Bell, Palette, Database, Brain, Shield, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, EyeOff, Lock, Sparkles, Zap, Crown, Image } from "lucide-react";
 import ExportPanel from "./ExportPanel";
-import type { UserSettingsUpdate, UserApiKey } from "../../types";
+import type { UserSettingsUpdate, UserApiKey, ProviderInfo } from "../../types";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -55,7 +55,7 @@ const tabGroups: TabGroup[] = [
 ];
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { user, updateSettings, apiKeys, fetchApiKeys, addApiKey, deleteApiKey } = useAuthStore();
+  const { user, updateSettings, apiKeys, fetchApiKeys, addApiKey, deleteApiKey, toggleProvider } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabId>("account");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -63,21 +63,24 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   // Form states
   const [displayName, setDisplayName] = useState("");
-  const [llmProvider, setLlmProvider] = useState("deepseek");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [theme, setTheme] = useState("dark");
 
+  // AI provider states
+  const [providerList, setProviderList] = useState<ProviderInfo[]>([]);
+  const [enabledProviders, setEnabledProviders] = useState<string[]>([]);
+  const [providerSaving, setProviderSaving] = useState(false);
+
   // API Key states
-  const [providerList, setProviderList] = useState<Array<{ id: string; name: string; default_model: string; preset_models?: string[] }>>([]);
   const [keyInputs, setKeyInputs] = useState<Record<string, { key: string; model: string; show: boolean; modelMode: "preset" | "custom"; customModel: string }>>({});
   const [keyLoading, setKeyLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
       setDisplayName(user.display_name || "");
-      setLlmProvider(user.preferred_llm || "deepseek");
       setNotificationsEnabled(user.notifications_enabled ?? true);
       setTheme(user.theme || "dark");
+      setEnabledProviders(user.enabled_providers || (user.preferred_llm ? [user.preferred_llm] : []));
     }
   }, [user]);
 
@@ -93,15 +96,15 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const loadProviders = async () => {
     try {
       const { data } = await apiKeyApi.providers();
-      const providers = data.data?.providers || [];
+      const providers = (data.data?.providers || []) as ProviderInfo[];
       setProviderList(providers);
       const inputs: Record<string, { key: string; model: string; show: boolean; modelMode: "preset" | "custom"; customModel: string }> = {};
-      providers.forEach((p: { id: string; default_model: string; preset_models?: string[] }) => {
+      providers.forEach((p) => {
         const saved = apiKeys.find((k) => k.provider === p.id);
         const savedModel = saved?.model;
         const presets = p.preset_models || [];
         const isPreset = savedModel && presets.includes(savedModel);
-        const initialModel = savedModel || p.default_model;
+        const initialModel = savedModel || p.models.default?.model || "";
         inputs[p.id] = {
           key: "",
           model: initialModel,
@@ -128,17 +131,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
-  const handleSaveAIPreferences = async () => {
-    setSaving(true);
-    setError("");
+  const handleToggleProvider = async (providerId: string) => {
+    setProviderSaving(true);
     try {
-      await updateSettings({ preferred_llm: llmProvider });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      await toggleProvider(providerId);
     } catch {
-      setError("保存失败");
+      setError("切换失败");
     } finally {
-      setSaving(false);
+      setProviderSaving(false);
     }
   };
 
@@ -183,6 +183,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         ...prev,
         [provider]: { ...prev[provider], key: "" },
       }));
+      // Refresh provider list to update has_api_key status
+      loadProviders();
     } catch {
       setError("保存 API Key 失败");
     } finally {
@@ -193,6 +195,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const handleDeleteApiKey = async (id: number) => {
     try {
       await deleteApiKey(id);
+      // Refresh provider list to update has_api_key status
+      loadProviders();
     } catch {
       setError("删除失败");
     }
@@ -346,45 +350,166 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
           )}
 
-          {/* AI Preferences Tab */}
+          {/* AI Preferences Tab — 勾选列表 */}
           {activeTab === "ai-preferences" && (
             <div className="space-y-8">
               <div>
-                <h2 className="text-2xl font-bold text-white mb-1">AI 提供商偏好</h2>
-                <p className="text-[#949ba4] text-sm">选择默认使用的 AI 服务提供商</p>
+                <h2 className="text-2xl font-bold text-white mb-1">AI 模型偏好</h2>
+                <p className="text-[#949ba4] text-sm">
+                  已配置 API Key 的供应商将出现在下方，勾选以启用。系统将在不同任务中自动选择对应层级的模型。
+                </p>
               </div>
 
-              <div className="bg-[#2b2d31] rounded-xl p-6 space-y-5 border border-[#1e1f22]">
-                <div>
-                  <label className="block text-sm font-bold text-[#949ba4] uppercase tracking-wider mb-2">
-                    默认 LLM 提供商
-                  </label>
-                  <select
-                    value={llmProvider}
-                    onChange={(e) => setLlmProvider(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
-                  >
-                    <option value="deepseek">DeepSeek（推荐）</option>
-                    <option value="zhipu">智谱 AI</option>
-                    <option value="qwen">通义千问</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="opencode-zen">OpenCode Zen</option>
-                    <option value="opencode-go">OpenCode Go</option>
-                    <option value="mock">模拟模式（演示）</option>
-                  </select>
-                  <p className="text-xs text-[#949ba4] mt-2">
-                    此设置将影响 AI 分类、日程解析等功能的默认提供商
-                  </p>
-                </div>
+              <div className="space-y-3">
+                {(() => {
+                  const configured = providerList.filter((p) => p.has_api_key);
+                  const unconfigured = providerList.filter((p) => !p.has_api_key);
 
-                <button
-                  onClick={handleSaveAIPreferences}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-[#5865f2] text-white rounded-lg font-bold text-sm hover:bg-[#4752c4] transition-all flex items-center gap-2 disabled:opacity-60"
-                >
-                  {saving ? <Loader2 size={16} className="animate-spin" /> : saved ? <CheckCircle2 size={16} /> : null}
-                  {saved ? "已保存" : "保存更改"}
-                </button>
+                  const tierIcons: Record<string, React.ReactNode> = {
+                    fast: <Zap size={12} />,
+                    default: null,
+                    strong: <Crown size={12} />,
+                    vision: <Image size={12} />,
+                  };
+                  const tierColors: Record<string, string> = {
+                    fast: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+                    default: "bg-blue-500/15 text-blue-400 border-blue-500/30",
+                    strong: "bg-purple-500/15 text-purple-400 border-purple-500/30",
+                    vision: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+                  };
+
+                  return (
+                    <>
+                      {configured.map((provider) => {
+                        const isEnabled = enabledProviders.includes(provider.id);
+                        const isLastChecked = enabledProviders.length === 1 && isEnabled;
+                        const modelTiers = provider.models;
+
+                        return (
+                          <div
+                            key={provider.id}
+                            className={`bg-[#2b2d31] rounded-xl p-5 border transition-colors cursor-pointer ${
+                              isEnabled ? "border-[#5865f2]/50 bg-[#5865f2]/5" : "border-[#1e1f22] hover:border-[#3f4147]"
+                            }`}
+                            onClick={() => {
+                              if (isLastChecked) return; // 最后一个不可取消
+                              handleToggleProvider(provider.id);
+                            }}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                                    isEnabled
+                                      ? "bg-[#5865f2] border-[#5865f2]"
+                                      : "border-[#4f545c]"
+                                  }`}
+                                >
+                                  {isEnabled && (
+                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                      <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  )}
+                                </div>
+                                <div>
+                                  <span className="text-white font-bold text-sm">{provider.name}</span>
+                                  {provider.has_real_vision && (
+                                    <span className="ml-2 text-orange-400" title="支持真实多模态识别">
+                                      <Sparkles size={13} className="inline" />
+                                    </span>
+                                  )}
+                                  {isLastChecked && (
+                                    <span className="ml-2 text-[10px] text-[#80848e] bg-[#80848e]/15 px-1.5 py-0.5 rounded">必选</span>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 bg-[#23a559]/20 text-[#23a559] rounded text-[10px] font-bold">
+                                已配置
+                              </span>
+                            </div>
+
+                            {/* 层级模型展示 */}
+                            <div className="flex flex-wrap gap-2 ml-8">
+                              {(["fast", "default", "strong", "vision"] as const).map((tier) => {
+                                const t = modelTiers[tier];
+                                if (!t) return null;
+                                return (
+                                  <span
+                                    key={tier}
+                                    className={`text-[10px] px-2 py-0.5 rounded border flex items-center gap-1 ${tierColors[tier] || "bg-gray-500/15 text-gray-400 border-gray-500/30"}`}
+                                    title={`${t.label}模型: ${t.model}`}
+                                  >
+                                    {tierIcons[tier]}
+                                    {t.label}: {t.model}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* 未配置 Key 的供应商 */}
+                      {unconfigured.length > 0 && (
+                        <>
+                          <div className="flex items-center gap-3 pt-4 pb-1">
+                            <div className="flex-1 h-px bg-[#3f4147]" />
+                            <span className="text-[10px] text-[#80848e] uppercase tracking-wider">以下供应商未配置 API Key</span>
+                            <div className="flex-1 h-px bg-[#3f4147]" />
+                          </div>
+                          {unconfigured.map((provider) => (
+                            <div
+                              key={provider.id}
+                              className="bg-[#2b2d31]/50 rounded-xl p-5 border border-[#1e1f22] opacity-50"
+                            >
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-5 h-5 rounded border-2 border-[#3f4147] flex items-center justify-center">
+                                    <Lock size={10} className="text-[#80848e]" />
+                                  </div>
+                                  <div>
+                                    <span className="text-[#949ba4] font-bold text-sm">{provider.name}</span>
+                                    {provider.has_real_vision && (
+                                      <span className="ml-2 text-orange-400/50">
+                                        <Sparkles size={13} className="inline" />
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className="px-2 py-0.5 bg-[#80848e]/15 text-[#80848e] rounded text-[10px]">未配置</span>
+                              </div>
+                              <div className="flex flex-wrap gap-2 ml-8">
+                                {(["fast", "default", "strong", "vision"] as const).map((tier) => {
+                                  const t = provider.models[tier];
+                                  if (!t) return null;
+                                  return (
+                                    <span
+                                      key={tier}
+                                      className="text-[10px] px-2 py-0.5 rounded border bg-gray-500/10 text-gray-500 border-gray-500/20 flex items-center gap-1"
+                                    >
+                                      {tierIcons[tier]}
+                                      {t.label}: {t.model}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+
+                      {configured.length === 0 && (
+                        <div className="bg-[#2b2d31] rounded-xl p-8 border border-[#1e1f22] text-center">
+                          <Key size={32} className="text-[#80848e] mx-auto mb-3" />
+                          <p className="text-[#dbdee1] text-sm font-bold mb-1">尚未配置任何 API Key</p>
+                          <p className="text-[#949ba4] text-xs">
+                            请先在「API Key 管理」选项卡中添加至少一个供应商的 API Key
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -400,7 +525,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <div className="space-y-4">
                 {providerList.map((provider) => {
                   const saved = getSavedKeyForProvider(provider.id);
-                  const input = keyInputs[provider.id] || { key: "", model: provider.default_model, show: false };
+                  const defaultModel = provider.models.default?.model || "";
+                  const input = keyInputs[provider.id] || { key: "", model: defaultModel, show: false };
                   return (
                     <div key={provider.id} className="bg-[#2b2d31] rounded-xl p-6 border border-[#1e1f22] space-y-4">
                       <div className="flex items-center justify-between">
@@ -433,52 +559,53 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <label className="block text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-1">
                             模型
                           </label>
-                          <select
-                            value={input.modelMode}
-                            onChange={(e) => {
-                              const mode = e.target.value as "preset" | "custom";
-                              setKeyInputs((prev) => ({
-                                ...prev,
-                                [provider.id]: {
-                                  ...prev[provider.id],
-                                  modelMode: mode,
-                                  model: mode === "preset" ? (provider.preset_models?.[0] || provider.default_model) : prev[provider.id].model,
-                                },
-                              }));
-                            }}
-                            className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm mb-2"
-                          >
-                            <option value="preset">预设模型</option>
-                            <option value="custom">自定义输入</option>
-                          </select>
-                          {input.modelMode === "preset" ? (
                             <select
-                              value={input.model}
-                              onChange={(e) =>
+                              value={input.modelMode}
+                              onChange={(e) => {
+                                const mode = e.target.value as "preset" | "custom";
+                                const defModel = provider.models.default?.model || "";
                                 setKeyInputs((prev) => ({
                                   ...prev,
-                                  [provider.id]: { ...prev[provider.id], model: e.target.value },
-                                }))
-                              }
-                              className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
+                                  [provider.id]: {
+                                    ...prev[provider.id],
+                                    modelMode: mode,
+                                    model: mode === "preset" ? (provider.preset_models?.[0] || defModel) : prev[provider.id].model,
+                                  },
+                                }));
+                              }}
+                              className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm mb-2"
                             >
-                              {(provider.preset_models || [provider.default_model]).map((m) => (
-                                <option key={m} value={m}>{m}</option>
-                              ))}
+                              <option value="preset">预设模型</option>
+                              <option value="custom">自定义输入</option>
                             </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={input.customModel}
-                              onChange={(e) =>
-                                setKeyInputs((prev) => ({
-                                  ...prev,
-                                  [provider.id]: { ...prev[provider.id], customModel: e.target.value },
-                                }))
-                              }
-                              placeholder={provider.default_model}
-                              className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
-                            />
+                            {input.modelMode === "preset" ? (
+                              <select
+                                value={input.model}
+                                onChange={(e) =>
+                                  setKeyInputs((prev) => ({
+                                    ...prev,
+                                    [provider.id]: { ...prev[provider.id], model: e.target.value },
+                                  }))
+                                }
+                                className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
+                              >
+                                {(provider.preset_models || [provider.models.default?.model || ""]).map((m) => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={input.customModel}
+                                onChange={(e) =>
+                                  setKeyInputs((prev) => ({
+                                    ...prev,
+                                    [provider.id]: { ...prev[provider.id], customModel: e.target.value },
+                                  }))
+                                }
+                                placeholder={provider.models.default?.model || ""}
+                                className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
+                              />
                           )}
                         </div>
                         <div>

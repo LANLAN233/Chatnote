@@ -19,6 +19,8 @@ interface AuthState {
   fetchApiKeys: () => Promise<void>;
   addApiKey: (data: { provider: string; api_key: string; model?: string }) => Promise<void>;
   deleteApiKey: (id: number) => Promise<void>;
+  setEnabledProviders: (providers: string[]) => Promise<void>;
+  toggleProvider: (providerId: string) => Promise<void>;
 }
 
 const getInitialTheme = () => "dark";
@@ -102,6 +104,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   deleteApiKey: async (id) => {
     await apiKeyApi.delete(id);
     await get().fetchApiKeys();
+  },
+  setEnabledProviders: async (providers) => {
+    // Update local state immediately for responsiveness
+    set((state) => ({
+      user: state.user ? { ...state.user, enabled_providers: providers } : null,
+    }));
+    // Persist to backend
+    await settingsApi.update({ enabled_providers: providers });
+  },
+  toggleProvider: async (providerId) => {
+    const current = get().user?.enabled_providers || [];
+    const newProviders = current.includes(providerId)
+      ? current.filter((p) => p !== providerId)
+      : [...current, providerId];
+    // Don't allow deselecting the last provider
+    if (newProviders.length === 0) return;
+    await get().setEnabledProviders(newProviders);
   },
 }));
 

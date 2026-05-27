@@ -1,8 +1,17 @@
+# ============================================================
+# ChatNote — Full-Stack Docker Compose
+# 
+# Start:    docker compose up -d
+# Stop:     docker compose down
+# Logs:     docker compose logs -f
+# Migrate:  docker compose exec backend alembic upgrade head
+# ============================================================
+
 services:
+  # ── Database ──────────────────────────────────────────
   postgres:
     image: pgvector/pgvector:pg17
-    ports:
-      - "5432:5432"
+    restart: unless-stopped
     environment:
       POSTGRES_DB: chatnote
       POSTGRES_USER: chatnote
@@ -15,11 +24,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - chatnote-net
 
+  # ── Connection Pooler ─────────────────────────────────
   pgbouncer:
     image: bitnami/pgbouncer:latest
-    ports:
-      - "6432:6432"
+    restart: unless-stopped
     environment:
       PGBOUNCER_POOL_MODE: transaction
       PGBOUNCER_DEFAULT_POOL_SIZE: "10"
@@ -33,6 +44,55 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U chatnote -d chatnote"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chatnote-net
+
+  # ── Backend API ───────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://chatnote:changeme@pgbouncer:6432/chatnote}
+      - SECRET_KEY=${SECRET_KEY:-chatnote-secret-key-change-in-production}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
+      - DEBUG=${DEBUG:-false}
+      - UPLOAD_DIR=./uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    networks:
+      - chatnote-net
+
+  # ── Frontend (Nginx + React SPA) ─────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-9001}:9001"
+    depends_on:
+      - backend
+    networks:
+      - chatnote-net
 
 volumes:
   pgdata:
+  uploads:
+
+networks:
+  chatnote-net:
+    driver: bridge

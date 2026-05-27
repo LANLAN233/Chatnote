@@ -19,6 +19,7 @@ import type {
   NoteList,
   NoteSearchResult,
   NoteUpdate,
+  ProviderInfo,
   ScheduleImportResult,
   Server,
   ServerCreate,
@@ -100,7 +101,7 @@ export const apiKeyApi = {
   create: (data: { provider: string; api_key: string; model?: string }) =>
     api.post<ApiResponse<UserApiKey>>("/settings/api-keys", data),
   delete: (id: number) => api.delete<ApiResponse<void>>(`/settings/api-keys/${id}`),
-  providers: () => api.get<ApiResponse<{ providers: Array<{ id: string; name: string; default_model: string; text_model: string; vision_model: string; base_url: string }> }>>("/settings/api-keys/providers"),
+  providers: () => api.get<ApiResponse<{ providers: ProviderInfo[] }>>("/settings/api-keys/providers"),
 };
 
 export const serverConsoleApi = {

@@ -1,0 +1,55 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+.vite/
+
+# Build outputs (will be generated in Docker)
+frontend/dist/
+
+# Database files
+*.db
+
+# Environment (use .env via docker-compose)
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker itself
+pgdata/
+.dockerignore
+Dockerfile*
+
+# Test artifacts
+frontend/test-results/
+frontend/e2e/screenshots/
+backend/.pytest_cache/
+backend/tests/
+
+# Archive & docs
+_archive/
+docs/
+thesis/
+
+# Root noise
+.opencode/
+.playwright-mcp/
+.sisyphus/
+skills/
+test_img/
+demo/

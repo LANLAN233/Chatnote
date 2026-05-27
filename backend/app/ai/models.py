@@ -16,31 +16,31 @@ logger = logging.getLogger(__name__)
 PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
-        "default_model": "deepseek-chat",
-        "fast_model": "deepseek-chat",
-        "strong_model": "deepseek-chat",
-        "vision_model": "deepseek-chat",
+        "default_model": "deepseek-v4-flash",
+        "fast_model": "deepseek-v4-flash",
+        "strong_model": "deepseek-v4-pro",
+        "vision_model": "deepseek-v4-flash",
     },
     "zhipu": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "default_model": "glm-4-flash",
-        "fast_model": "glm-4-flash",
-        "strong_model": "glm-4-plus",
-        "vision_model": "glm-4v",
+        "default_model": "glm-4.7",
+        "fast_model": "glm-4.7-flash",
+        "strong_model": "glm-5",
+        "vision_model": "glm-4.6v",
     },
     "qwen": {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "default_model": "qwen-turbo-latest",
-        "fast_model": "qwen-turbo-latest",
-        "strong_model": "qwen-plus-latest",
-        "vision_model": "qwen-vl-max-latest",
+        "default_model": "qwen3.5-plus",
+        "fast_model": "qwen3.5-flash",
+        "strong_model": "qwen3-max",
+        "vision_model": "qwen3-vl-plus",
     },
     "openai": {
         "base_url": None,
-        "default_model": "gpt-3.5-turbo",
-        "fast_model": "gpt-4o-mini",
-        "strong_model": "gpt-4o",
-        "vision_model": "gpt-4o",
+        "default_model": "gpt-5.4-mini",
+        "fast_model": "gpt-5.4-mini",
+        "strong_model": "gpt-5.5",
+        "vision_model": "gpt-5.5",
     },
     "opencode-zen": {
         "base_url": "https://opencode.ai/zen/go/v1",
@@ -58,16 +58,16 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     },
     "moonshot": {
         "base_url": "https://api.moonshot.cn/v1",
-        "default_model": "kimi-k2.5",
+        "default_model": "kimi-k2.6",
         "fast_model": "kimi-k2.5",
-        "strong_model": "kimi-k2.5",
-        "vision_model": "kimi-k2.5",
+        "strong_model": "kimi-k2.6",
+        "vision_model": "kimi-k2.6",
     },
 }
 
 # Providers whose vision_model has real visual recognition capability.
-# deepseek-chat claims vision but only does text-based; opencode-zen/go
-# use the same models without real vision.
+# DeepSeek does not have a native vision model; opencode-zen/go
+# use third-party models without reliable vision routing.
 PROVIDERS_WITH_REAL_VISION: set[str] = {"moonshot", "openai", "zhipu", "qwen"}
 
 
@@ -119,78 +119,177 @@ def _infer_provider_from_model(model: OpenAIChat | None) -> str | None:
     return None
 
 
+def _resolve_enabled_providers(user: User | None) -> list[str]:
+    """Return the list of enabled provider IDs for a user.
+
+    Falls back to preferred_llm if enabled_providers is not set (legacy users).
+    Excludes "mock" since it has no real API key.
+    """
+    if user and user.enabled_providers:
+        return [p for p in user.enabled_providers if p != "mock"]
+    if user and user.preferred_llm:
+        provider = user.preferred_llm
+        return [provider] if provider != "mock" else []
+    return ["deepseek"]
+
+
+def _resolve_model_id(
+    api_key_record: UserApiKey | None,
+    config: dict,
+    use_vision: bool,
+) -> str:
+    # Vision requests always use the configured vision model,
+    # not the user's custom model (which may not support images)
+    if use_vision:
+        return config["vision_model"]
+    if api_key_record and api_key_record.model:
+        return api_key_record.model
+    return config["default_model"]
+
+
+def _resolve_tier_model_id(
+    api_key_record: UserApiKey | None,
+    config: dict[str, Any],
+    tier: str,
+) -> str:
+    if api_key_record and api_key_record.model:
+        return api_key_record.model
+
+    normalized_tier = tier.lower()
+    if normalized_tier == "strong":
+        return config.get("strong_model", config["default_model"])
+    if normalized_tier == "fast":
+        return config.get("fast_model", config["default_model"])
+    if normalized_tier == "vision":
+        return config.get("vision_model", config["default_model"])
+    return config["default_model"]
+
+
+async def _fetch_user_and_providers(
+    user_id: int,
+    db: AsyncSession,
+) -> tuple[User | None, list[str]]:
+    """Fetch the user record and resolve the ordered list of enabled providers."""
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
+    providers = _resolve_enabled_providers(user)
+    return user, providers
+
+
+async def _find_api_key_for_providers(
+    user_id: int,
+    db: AsyncSession,
+    providers: list[str],
+) -> tuple[UserApiKey | None, str | None]:
+    """Find the first available UserApiKey among the given providers (in order).
+
+    Returns (key_record, provider_id) or (None, None) if no key found.
+    """
+    for provider in providers:
+        config = PROVIDER_CONFIG.get(provider)
+        if not config:
+            continue
+        key_result = await db.execute(
+            select(UserApiKey).where(
+                UserApiKey.user_id == user_id,
+                UserApiKey.provider == provider,
+            ).order_by(UserApiKey.is_default.desc())
+        )
+        key_record = key_result.scalars().first()
+        if key_record:
+            return key_record, provider
+
+    # Fallback: try ANY non-mock key
+    any_result = await db.execute(
+        select(UserApiKey).where(
+            UserApiKey.user_id == user_id,
+            UserApiKey.provider != "mock",
+        )
+    )
+    any_record = any_result.scalars().first()
+    if any_record:
+        return any_record, any_record.provider
+
+    return None, None
+
+
+async def _build_openai_chat(
+    api_key_record: UserApiKey | None,
+    decrypted_key: str,
+    provider: str,
+    model_id: str,
+) -> OpenAIChat:
+    """Build an OpenAIChat instance from resolved parameters."""
+    config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["deepseek"])
+    extra: dict[str, Any] = {}
+    if provider == "moonshot":
+        extra["extra_body"] = {"thinking": {"type": "disabled"}}
+    return OpenAIChat(
+        id=model_id,
+        api_key=decrypted_key,
+        base_url=config["base_url"],
+        role_map={
+            "system": "system",
+            "user": "user",
+            "assistant": "assistant",
+            "tool": "tool",
+            "model": "assistant",
+        },
+        **extra,
+    )
+
+
 async def get_model_for_user(
     user_id: int,
     db: AsyncSession,
     use_vision: bool = False,
 ) -> OpenAIChat | None:
-    """Create an Agno OpenAIChat instance dynamically based on user settings.
+    """Create an Agno OpenAIChat instance dynamically based on user's enabled providers.
 
-    Returns None if no API key is configured (caller should use fallback).
+    Iterates through the user's enabled_providers (or preferred_llm as fallback),
+    picking the first provider that has a configured API key.
+    Returns None if no API key is configured.
     """
-    provider = "deepseek"
+    user, providers = await _fetch_user_and_providers(user_id, db)
 
-    # 1. Get user's preferred provider
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if user:
-        provider = user.preferred_llm or "deepseek"
-
-    # Skip "mock" provider — no real API key available
-    if provider == "mock":
+    # If all providers are "mock", no real model available
+    if not providers:
         return None
 
-    # 2. Find API key for this provider
-    key_result = await db.execute(
-        select(UserApiKey).where(
-            UserApiKey.user_id == user_id,
-            UserApiKey.provider == provider,
-        ).order_by(UserApiKey.is_default.desc())
-    )
-    api_key_record = key_result.scalars().first() if key_result else None
+    # For vision, only consider providers with real vision capability
+    candidate_providers = providers
+    if use_vision:
+        candidate_providers = [p for p in providers if p in PROVIDERS_WITH_REAL_VISION]
+        if not candidate_providers:
+            # Fallback to Moonshot global key for vision
+            if settings.MOONSHOT_API_KEY:
+                logger.info("Vision requested, no real-vision enabled provider for user %d, using global Moonshot key", user_id)
+                config = PROVIDER_CONFIG["moonshot"]
+                return await _build_openai_chat(
+                    None, settings.MOONSHOT_API_KEY, "moonshot",
+                    config["vision_model"],
+                )
+            # If no MoonShot key either, try any enabled provider anyway (best-effort)
+            candidate_providers = providers
 
-    # 3. Fallback: try any available key (skip mock)
+    api_key_record, provider = await _find_api_key_for_providers(user_id, db, candidate_providers)
+
+    # Moonshot global key fallback (when no personal key)
+    if api_key_record is None and "moonshot" in providers and settings.MOONSHOT_API_KEY:
+        logger.info("No personal moonshot key for user %d, using global MOONSHOT_API_KEY", user_id)
+        config = PROVIDER_CONFIG["moonshot"]
+        model_id = config["vision_model"] if use_vision else config["default_model"]
+        return await _build_openai_chat(None, settings.MOONSHOT_API_KEY, "moonshot", model_id)
+
     if api_key_record is None:
-        # 3a. Special case: moonshot with no personal key → use global key
-        if provider == "moonshot" and settings.MOONSHOT_API_KEY:
-            logger.info(
-                "No personal moonshot key for user %d, using global MOONSHOT_API_KEY",
-                user_id,
-            )
-            config = PROVIDER_CONFIG["moonshot"]
-            model_id = config["vision_model"] if use_vision else config["default_model"]
-            return OpenAIChat(
-                id=model_id,
-                api_key=settings.MOONSHOT_API_KEY,
-                base_url=config["base_url"],
-                extra_body={"thinking": {"type": "disabled"}},
-                role_map={
-                    "system": "system",
-                    "user": "user",
-                    "assistant": "assistant",
-                    "tool": "tool",
-                    "model": "assistant",
-                },
-            )
-
-        any_result = await db.execute(
-            select(UserApiKey).where(
-                UserApiKey.user_id == user_id,
-                UserApiKey.provider != "mock",
-            )
-        )
-        api_key_record = any_result.scalars().first() if any_result else None
-        if api_key_record:
-            provider = api_key_record.provider
-
-    # 4. No key configured → return None (caller uses fallback)
-    if api_key_record is None:
+        # Legacy: try user.api_key_encrypted
         if user and user.api_key_encrypted:
             try:
                 decrypted_key = decrypt(user.api_key_encrypted)
             except Exception:
                 logger.warning("Failed to decrypt legacy API key")
                 return None
+            provider = "deepseek"
         else:
             logger.warning("No API key for user %d, returning None", user_id)
             return None
@@ -205,22 +304,11 @@ async def get_model_for_user(
     model_id = _resolve_model_id(api_key_record, config, use_vision)
 
     logger.info(
-        "Creating model for user %d: provider=%s model=%s",
-        user_id, provider, model_id,
+        "Creating model for user %d: provider=%s model=%s vision=%s",
+        user_id, provider, model_id, use_vision,
     )
 
-    return OpenAIChat(
-        id=model_id,
-        api_key=decrypted_key,
-        base_url=config["base_url"],
-        role_map={
-            "system": "system",
-            "user": "user",
-            "assistant": "assistant",
-            "tool": "tool",
-            "model": "assistant",
-        },
-    )
+    return await _build_openai_chat(api_key_record, decrypted_key, provider, model_id)
 
 
 async def get_model_by_tier(
@@ -228,35 +316,34 @@ async def get_model_by_tier(
     db: AsyncSession,
     tier: str = "fast",
 ) -> OpenAIChat | None:
-    """Create an Agno OpenAIChat instance dynamically based on a capability tier."""
-    provider = "deepseek"
+    """Create an Agno OpenAIChat instance dynamically based on a capability tier.
 
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if user:
-        provider = user.preferred_llm or "deepseek"
+    Uses the user's enabled_providers to find the first provider with a key
+    that supports the requested tier. For 'vision' tier, only providers with
+    real vision capability are considered.
+    """
+    user, providers = await _fetch_user_and_providers(user_id, db)
 
-    if provider == "mock":
+    if not providers:
         return None
 
-    key_result = await db.execute(
-        select(UserApiKey).where(
-            UserApiKey.user_id == user_id,
-            UserApiKey.provider == provider,
-        ).order_by(UserApiKey.is_default.desc())
-    )
-    api_key_record = key_result.scalars().first() if key_result else None
+    normalized_tier = tier.lower()
 
-    if api_key_record is None:
-        any_result = await db.execute(
-            select(UserApiKey).where(
-                UserApiKey.user_id == user_id,
-                UserApiKey.provider != "mock",
-            )
-        )
-        api_key_record = any_result.scalars().first() if any_result else None
-        if api_key_record:
-            provider = api_key_record.provider
+    # For vision tier, only consider providers with real vision capability
+    candidate_providers = providers
+    if normalized_tier == "vision":
+        candidate_providers = [p for p in providers if p in PROVIDERS_WITH_REAL_VISION]
+        if not candidate_providers:
+            if settings.MOONSHOT_API_KEY:
+                logger.info("Vision tier requested, no real-vision enabled provider for user %d, using global Moonshot key", user_id)
+                config = PROVIDER_CONFIG["moonshot"]
+                return await _build_openai_chat(
+                    None, settings.MOONSHOT_API_KEY, "moonshot",
+                    config["vision_model"],
+                )
+            candidate_providers = providers
+
+    api_key_record, provider = await _find_api_key_for_providers(user_id, db, candidate_providers)
 
     if api_key_record is None:
         if user and user.api_key_encrypted:
@@ -265,6 +352,7 @@ async def get_model_by_tier(
             except Exception:
                 logger.warning("Failed to decrypt legacy API key")
                 return None
+            provider = "deepseek"
         else:
             logger.warning("No API key for user %d, returning None", user_id)
             return None
@@ -276,25 +364,14 @@ async def get_model_by_tier(
             return None
 
     config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["deepseek"])
-    model_id = _resolve_tier_model_id(api_key_record, config, tier)
+    model_id = _resolve_tier_model_id(api_key_record, config, normalized_tier)
 
     logger.info(
         "Creating tiered model for user %d: provider=%s tier=%s model=%s",
         user_id, provider, tier, model_id,
     )
 
-    return OpenAIChat(
-        id=model_id,
-        api_key=decrypted_key,
-        base_url=config["base_url"],
-        role_map={
-            "system": "system",
-            "user": "user",
-            "assistant": "assistant",
-            "tool": "tool",
-            "model": "assistant",
-        },
-    )
+    return await _build_openai_chat(api_key_record, decrypted_key, provider, model_id)
 
 
 def _resolve_model_id(

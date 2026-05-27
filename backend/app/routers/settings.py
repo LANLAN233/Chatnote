@@ -1,7 +1,10 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.models import PROVIDER_CONFIG, PROVIDERS_WITH_REAL_VISION
 from app.database import get_db
 from app.models.models import User, UserApiKey
 from app.routers.auth import get_current_user
@@ -41,6 +44,13 @@ async def update_settings(
 
     if settings_in.preferred_llm is not None:
         current_user.preferred_llm = settings_in.preferred_llm
+        updated = True
+
+    if settings_in.enabled_providers is not None:
+        current_user.enabled_providers = settings_in.enabled_providers
+        # Keep preferred_llm in sync: use the first enabled provider as default
+        if settings_in.enabled_providers and settings_in.preferred_llm is None:
+            current_user.preferred_llm = settings_in.enabled_providers[0]
         updated = True
 
     if settings_in.api_key is not None:
@@ -187,110 +197,113 @@ async def delete_api_key(
     return ApiResponse(success=True, message="API key deleted")
 
 
+# ── Provider display metadata (names, preset_models) ────────────────────
+# Only PROVIDER_CONFIG is the source of truth for model IDs.
+# This map adds UI-friendly display info for each provider.
+_PROVIDER_DISPLAY: dict[str, dict] = {
+    "deepseek": {
+        "name": "DeepSeek（推荐）",
+        "preset_models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+    },
+    "zhipu": {
+        "name": "智谱 AI",
+        "preset_models": ["glm-4.7-flash", "glm-4.7", "glm-5", "glm-5.1", "glm-4.6v", "glm-5v-turbo"],
+    },
+    "qwen": {
+        "name": "通义千问",
+        "preset_models": ["qwen3.5-flash", "qwen3.5-plus", "qwen3-max", "qwen3-vl-plus"],
+    },
+    "openai": {
+        "name": "OpenAI",
+        "preset_models": ["gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
+    },
+    "moonshot": {
+        "name": "Moonshot (Kimi)",
+        "preset_models": ["kimi-k2.5", "kimi-k2.6"],
+    },
+    "opencode-zen": {
+        "name": "OpenCode Zen",
+        "preset_models": [
+            "kimi-k2.6", "glm-5.1", "glm-5", "qwen3.6-plus", "qwen3.5-plus",
+            "deepseek-v4-pro", "deepseek-v4-flash",
+            "gpt-5.5", "gpt-5.4", "gpt-5.4-mini",
+            "gemini-3.1-pro", "gemini-3-flash",
+        ],
+    },
+    "opencode-go": {
+        "name": "OpenCode Go",
+        "preset_models": [
+            "kimi-k2.6", "glm-5.1", "glm-5", "qwen3.6-plus", "qwen3.5-plus",
+            "deepseek-v4-pro", "deepseek-v4-flash",
+            "mimo-v2-pro", "mimo-v2-omni", "minimax-m2.7", "minimax-m2.5",
+        ],
+    },
+    "mock": {
+        "name": "模拟模式（演示）",
+        "preset_models": ["mock"],
+    },
+}
+
+# Tier labels for frontend display
+TIER_LABELS = {
+    "fast": "快速",
+    "default": "标准",
+    "strong": "高级",
+    "vision": "多模态",
+}
+
+
 @router.get("/api-keys/providers", response_model=ApiResponse)
-async def list_providers():
-    """Return supported LLM providers and default models."""
+async def list_providers(
+    current_user: Optional[User] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return supported LLM providers with tier models, vision support, and per-user API key status.
+
+    Each provider includes:
+    - models: dict of tier → {model, label} (fast/default/strong/vision)
+    - has_real_vision: whether vision_model supports real image recognition
+    - has_api_key: whether the current user has an API key configured for this provider
+    """
+    # Build set of providers for which the current user has keys
+    user_providers: set[str] = set()
+    if current_user:
+        result = await db.execute(
+            select(UserApiKey.provider).where(UserApiKey.user_id == current_user.id)
+        )
+        user_providers = {row[0] for row in result.all() if row[0]}
+
+    providers = []
+    for provider_id, config in PROVIDER_CONFIG.items():
+        display = _PROVIDER_DISPLAY.get(provider_id, {})
+        providers.append({
+            "id": provider_id,
+            "name": display.get("name", provider_id),
+            "models": {
+                "fast": {
+                    "model": config.get("fast_model", config["default_model"]),
+                    "label": TIER_LABELS["fast"],
+                },
+                "default": {
+                    "model": config["default_model"],
+                    "label": TIER_LABELS["default"],
+                },
+                "strong": {
+                    "model": config.get("strong_model", config["default_model"]),
+                    "label": TIER_LABELS["strong"],
+                },
+                "vision": {
+                    "model": config.get("vision_model", config["default_model"]),
+                    "label": TIER_LABELS["vision"],
+                },
+            },
+            "has_real_vision": provider_id in PROVIDERS_WITH_REAL_VISION,
+            "has_api_key": provider_id in user_providers,
+            "preset_models": display.get("preset_models", [config["default_model"]]),
+            "base_url": config.get("base_url") or "",
+        })
+
     return ApiResponse(
         success=True,
-        data={
-            "providers": [
-                {
-                    "id": "deepseek",
-                    "name": "DeepSeek (推荐)",
-                    "default_model": "deepseek-chat",
-                    "text_model": "deepseek-chat",
-                    "vision_model": "deepseek-chat",
-                    "base_url": "https://api.deepseek.com/v1",
-                    "preset_models": ["deepseek-chat", "deepseek-reasoner"],
-                },
-                {
-                    "id": "zhipu",
-                    "name": "智谱 AI",
-                    "default_model": "glm-4-flash",
-                    "text_model": "glm-4-flash",
-                    "vision_model": "glm-4v",
-                    "base_url": "https://open.bigmodel.cn/api/paas/v4",
-                    "preset_models": ["glm-4-flash", "glm-4-plus", "glm-4v"],
-                },
-                {
-                    "id": "qwen",
-                    "name": "通义千问",
-                    "default_model": "qwen-turbo",
-                    "text_model": "qwen-turbo",
-                    "vision_model": "qwen-vl-max",
-                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    "preset_models": ["qwen-turbo", "qwen-plus", "qwen-max", "qwen-vl-max"],
-                },
-                {
-                    "id": "openai",
-                    "name": "OpenAI",
-                    "default_model": "gpt-3.5-turbo",
-                    "text_model": "gpt-3.5-turbo",
-                    "vision_model": "gpt-4o",
-                    "base_url": "https://api.openai.com/v1",
-                    "preset_models": ["gpt-3.5-turbo", "gpt-4o", "gpt-4o-mini"],
-                },
-                {
-                    "id": "moonshot",
-                    "name": "Moonshot (Kimi)",
-                    "default_model": "kimi-k2.5",
-                    "text_model": "kimi-k2.5",
-                    "vision_model": "kimi-k2.5",
-                    "base_url": "https://api.moonshot.cn/v1",
-                    "preset_models": ["kimi-k2.5"],
-                },
-                {
-                    "id": "opencode-zen",
-                    "name": "OpenCode Zen",
-                    "default_model": "kimi-k2.6",
-                    "text_model": "kimi-k2.6",
-                    "vision_model": "kimi-k2.6",
-                    "base_url": "https://opencode.ai/zen/v1",
-                    "preset_models": [
-                        "kimi-k2.6",
-                        "glm-5.1",
-                        "glm-5",
-                        "qwen3.6-plus",
-                        "qwen3.5-plus",
-                        "deepseek-v4-pro",
-                        "deepseek-v4-flash",
-                        "gpt-5.5",
-                        "gpt-5.4",
-                        "gpt-5.4-mini",
-                        "gemini-3.1-pro",
-                        "gemini-3-flash",
-                    ],
-                },
-                {
-                    "id": "opencode-go",
-                    "name": "OpenCode Go",
-                    "default_model": "kimi-k2.6",
-                    "text_model": "kimi-k2.6",
-                    "vision_model": "kimi-k2.6",
-                    "base_url": "https://opencode.ai/zen/go/v1",
-                    "preset_models": [
-                        "kimi-k2.6",
-                        "glm-5.1",
-                        "glm-5",
-                        "qwen3.6-plus",
-                        "qwen3.5-plus",
-                        "deepseek-v4-pro",
-                        "deepseek-v4-flash",
-                        "mimo-v2-pro",
-                        "mimo-v2-omni",
-                        "minimax-m2.7",
-                        "minimax-m2.5",
-                    ],
-                },
-                {
-                    "id": "mock",
-                    "name": "模拟模式（演示）",
-                    "default_model": "mock",
-                    "text_model": "mock",
-                    "vision_model": "mock",
-                    "base_url": "",
-                    "preset_models": ["mock"],
-                },
-            ]
-        },
+        data={"providers": providers},
     )

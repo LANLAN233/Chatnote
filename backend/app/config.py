@@ -16,13 +16,14 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ORIGINS: list[str] = ["*"]
 
     UPLOAD_DIR: str = "./uploads"
 
+    # ── Deprecated legacy keys (use user-scoped keys via settings UI) ──
     LLM_PROVIDER: str = "deepseek"
     LLM_API_KEY: str = ""
-    LLM_MODEL: str = "deepseek-chat"
+    LLM_MODEL: str = "deepseek-v4-flash"
     LLM_BASE_URL: str = ""
 
     ENCRYPTION_KEY: str = ""

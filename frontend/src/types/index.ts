@@ -5,6 +5,7 @@ export interface User {
   avatar: string | null;
   status: string;
   preferred_llm: string;
+  enabled_providers: string[] | null;
   theme: string;
   notifications_enabled: boolean;
   api_key_encrypted: string | null;
@@ -15,6 +16,7 @@ export interface User {
 export interface UserSettingsUpdate {
   display_name?: string;
   preferred_llm?: string;
+  enabled_providers?: string[];
   api_key?: string;
   theme?: string;
   notifications_enabled?: boolean;
@@ -421,6 +423,23 @@ export interface UserApiKey {
   is_default: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** Tier → model mapping for a single provider */
+export interface ProviderTierModel {
+  model: string;
+  label: string;  // "快速" | "标准" | "高级" | "多模态"
+}
+
+/** Full provider info returned by GET /api/settings/api-keys/providers */
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  models: Record<string, ProviderTierModel>;  // fast, default, strong, vision
+  has_real_vision: boolean;
+  has_api_key: boolean;
+  preset_models: string[];
+  base_url: string;
 }
 
 export interface ScheduleImportChannel {
