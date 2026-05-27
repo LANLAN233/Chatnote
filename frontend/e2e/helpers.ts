@@ -28,11 +28,11 @@ export const SERVERS = [
   },
 ];
 
-/** LLM provider API keys (server-side encrypted, used here for test seeding) */
+/** LLM provider API keys for test seeding — loaded from environment variables */
 export const API_KEYS = [
-  { provider: 'moonshot', key: 'REDACTED' },
-  { provider: 'opencode', key: 'REDACTED' },
-  { provider: 'deepseek', key: 'REDACTED' },
+  { provider: 'moonshot', key: process.env.E2E_MOONSHOT_API_KEY || '' },
+  { provider: 'opencode', key: process.env.E2E_OPENCODE_API_KEY || '' },
+  { provider: 'deepseek', key: process.env.E2E_DEEPSEEK_API_KEY || '' },
 ];
 
 /**
