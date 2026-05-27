@@ -10,6 +10,13 @@ echo "  ChatNote — Docker Deployment"
 echo "============================================"
 echo ""
 
+# 0. Configure Docker Alibaba Cloud mirror (for China servers)
+if [ -f setup-docker-mirror.sh ]; then
+    echo "[*] Setting up Docker Alibaba Cloud mirror..."
+    bash setup-docker-mirror.sh
+    echo ""
+fi
+
 # 1. Check .env exists
 if [ ! -f .env ]; then
     echo "[!] .env file not found."

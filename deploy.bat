@@ -10,6 +10,13 @@ echo   ChatNote - Docker Deployment
 echo ============================================
 echo.
 
+REM 0. Configure Docker Alibaba Cloud mirror
+echo [*] Setting up Alibaba Cloud mirror (requires admin)...
+echo     If already configured, skip this step.
+echo     Run setup-docker-mirror.sh on Linux server, or
+echo     manually add registry-mirrors to /etc/docker/daemon.json
+echo.
+
 REM 1. Check .env exists
 if not exist .env (
     echo [!] .env file not found.
