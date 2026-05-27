@@ -7,14 +7,16 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # ── System dependencies ──────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Use Alibaba Cloud apt mirror for faster installs in China
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python dependencies ──────────────────────────────────
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 
 # ── Application code ─────────────────────────────────────
 COPY backend/ .
