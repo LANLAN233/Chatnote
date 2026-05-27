@@ -1,22 +1,34 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.models import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger = logging.getLogger(__name__)
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    """Hash a password using bcrypt. Returns the hash as a string."""
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against a bcrypt hash."""
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError as e:
+        logger.warning("bcrypt verification error (possibly invalid hash format): %s", e)
+        return False
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -42,7 +54,10 @@ async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
 async def authenticate_user(db: AsyncSession, username: str, password: str) -> User | None:
     user = await get_user_by_username(db, username)
     if not user:
+        logger.info("Login failed: user '%s' not found", username)
         return None
     if not verify_password(password, user.hashed_password):
+        logger.info("Login failed: password mismatch for user '%s' (id=%d)", username, user.id)
         return None
+    logger.info("Login successful for user '%s' (id=%d)", username, user.id)
     return user
