@@ -55,7 +55,7 @@ const tabGroups: TabGroup[] = [
 ];
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { user, updateSettings, apiKeys, fetchApiKeys, addApiKey, deleteApiKey, toggleProvider } = useAuthStore();
+  const { user, updateSettings, apiKeys, fetchApiKeys, addApiKey, deleteApiKey, toggleProvider, toggleProviderTier } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabId>("account");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -68,11 +68,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   // AI provider states
   const [providerList, setProviderList] = useState<ProviderInfo[]>([]);
-  const [enabledProviders, setEnabledProviders] = useState<string[]>([]);
+  const [enabledProviders, setEnabledProviders] = useState<Record<string, string[]> | string[]>([]);
   const [providerSaving, setProviderSaving] = useState(false);
 
   // API Key states
-  const [keyInputs, setKeyInputs] = useState<Record<string, { key: string; model: string; show: boolean; modelMode: "preset" | "custom"; customModel: string }>>({});
+  const [keyInputs, setKeyInputs] = useState<Record<string, { key: string; show: boolean }>>({});
   const [keyLoading, setKeyLoading] = useState(false);
 
   useEffect(() => {
@@ -98,20 +98,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       const { data } = await apiKeyApi.providers();
       const providers = (data.data?.providers || []) as ProviderInfo[];
       setProviderList(providers);
-      const inputs: Record<string, { key: string; model: string; show: boolean; modelMode: "preset" | "custom"; customModel: string }> = {};
+      const inputs: Record<string, { key: string; show: boolean }> = {};
       providers.forEach((p) => {
-        const saved = apiKeys.find((k) => k.provider === p.id);
-        const savedModel = saved?.model;
-        const presets = p.preset_models || [];
-        const isPreset = savedModel && presets.includes(savedModel);
-        const initialModel = savedModel || p.models.default?.model || "";
-        inputs[p.id] = {
-          key: "",
-          model: initialModel,
-          show: false,
-          modelMode: isPreset || !savedModel ? "preset" : "custom",
-          customModel: isPreset || !savedModel ? "" : savedModel,
-        };
+        inputs[p.id] = { key: "", show: false };
       });
       setKeyInputs(inputs);
     } catch {}
@@ -135,6 +124,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setProviderSaving(true);
     try {
       await toggleProvider(providerId);
+    } catch {
+      setError("切换失败");
+    } finally {
+      setProviderSaving(false);
+    }
+  };
+
+  const handleToggleTier = async (providerId: string, tier: string) => {
+    setProviderSaving(true);
+    try {
+      await toggleProviderTier(providerId, tier);
+      const updated = useAuthStore.getState().user?.enabled_providers;
+      if (updated) setEnabledProviders(updated);
     } catch {
       setError("切换失败");
     } finally {
@@ -172,13 +174,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const handleSaveApiKey = async (provider: string) => {
     const input = keyInputs[provider];
-    if (!input) return;
+    if (!input || !input.key.trim()) return;
     setKeyLoading(true);
     try {
-      const modelToSend = input.modelMode === "custom" && input.customModel.trim()
-        ? input.customModel.trim()
-        : input.model;
-      await addApiKey({ provider, api_key: input.key, model: modelToSend });
+      await addApiKey({ provider, api_key: input.key });
       setKeyInputs((prev) => ({
         ...prev,
         [provider]: { ...prev[provider], key: "" },
@@ -381,67 +380,86 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   return (
                     <>
                       {configured.map((provider) => {
-                        const isEnabled = enabledProviders.includes(provider.id);
-                        const isLastChecked = enabledProviders.length === 1 && isEnabled;
+                        // Get enabled tiers for this provider
+                        const enabledDict = Array.isArray(enabledProviders)
+                          ? null
+                          : (enabledProviders as Record<string, string[]>);
+                        const enabledTiers = enabledDict
+                          ? (enabledDict[provider.id] || [])
+                          : ["fast", "default", "strong"]; // legacy: all non-vision tiers
+                        const isProviderEnabled = enabledTiers.length > 0;
                         const modelTiers = provider.models;
+
+                        const totalEnabledTiers = enabledDict
+                          ? Object.values(enabledDict).reduce((s, t) => s + t.length, 0)
+                          : 1;
 
                         return (
                           <div
                             key={provider.id}
-                            className={`bg-[#2b2d31] rounded-xl p-5 border transition-colors cursor-pointer ${
-                              isEnabled ? "border-[#5865f2]/50 bg-[#5865f2]/5" : "border-[#1e1f22] hover:border-[#3f4147]"
+                            className={`bg-[#2b2d31] rounded-xl p-5 border ${
+                              isProviderEnabled ? "border-[#5865f2]/50 bg-[#5865f2]/5" : "border-[#1e1f22]"
                             }`}
-                            onClick={() => {
-                              if (isLastChecked) return; // 最后一个不可取消
-                              handleToggleProvider(provider.id);
-                            }}
                           >
                             <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center gap-3">
-                                <div
-                                  className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                                    isEnabled
-                                      ? "bg-[#5865f2] border-[#5865f2]"
-                                      : "border-[#4f545c]"
-                                  }`}
-                                >
-                                  {isEnabled && (
-                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                      <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                  )}
-                                </div>
-                                <div>
-                                  <span className="text-white font-bold text-sm">{provider.name}</span>
-                                  {provider.has_real_vision && (
-                                    <span className="ml-2 text-orange-400" title="支持真实多模态识别">
-                                      <Sparkles size={13} className="inline" />
-                                    </span>
-                                  )}
-                                  {isLastChecked && (
-                                    <span className="ml-2 text-[10px] text-[#80848e] bg-[#80848e]/15 px-1.5 py-0.5 rounded">必选</span>
-                                  )}
-                                </div>
+                              <div>
+                                <span className="text-white font-bold text-sm">{provider.name}</span>
+                                {provider.has_real_vision && (
+                                  <span className="ml-2 text-orange-400" title="支持真实多模态识别">
+                                    <Sparkles size={13} className="inline" />
+                                  </span>
+                                )}
                               </div>
                               <span className="px-2 py-0.5 bg-[#23a559]/20 text-[#23a559] rounded text-[10px] font-bold">
                                 已配置
                               </span>
                             </div>
 
-                            {/* 层级模型展示 */}
-                            <div className="flex flex-wrap gap-2 ml-8">
+                            {/* 层级模型勾选 */}
+                            <div className="space-y-1.5 ml-2">
                               {(["fast", "default", "strong", "vision"] as const).map((tier) => {
+                                if (tier === "vision" && !provider.has_real_vision) return null;
                                 const t = modelTiers[tier];
                                 if (!t) return null;
+                                const isChecked = enabledTiers.includes(tier);
+                                const isLastChecked = totalEnabledTiers === 1 && isChecked;
+
                                 return (
-                                  <span
+                                  <div
                                     key={tier}
-                                    className={`text-[10px] px-2 py-0.5 rounded border flex items-center gap-1 ${tierColors[tier] || "bg-gray-500/15 text-gray-400 border-gray-500/30"}`}
-                                    title={`${t.label}模型: ${t.model}`}
+                                    className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-[#35373c] transition-colors cursor-pointer"
+                                    onClick={() => {
+                                      if (isLastChecked || providerSaving) return;
+                                      handleToggleTier(provider.id, tier);
+                                    }}
                                   >
-                                    {tierIcons[tier]}
-                                    {t.label}: {t.model}
-                                  </span>
+                                    <div
+                                      className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                                        isChecked
+                                          ? "bg-[#5865f2] border-[#5865f2]"
+                                          : "border-[#4f545c]"
+                                      }`}
+                                    >
+                                      {isChecked && (
+                                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                          <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                      )}
+                                    </div>
+                                    <span
+                                      className={`text-[10px] px-2 py-0.5 rounded border flex items-center gap-1 ${
+                                        isChecked
+                                          ? tierColors[tier] || "bg-gray-500/15 text-gray-400 border-gray-500/30"
+                                          : "bg-gray-500/10 text-gray-500 border-gray-500/20"
+                                      }`}
+                                    >
+                                      {tierIcons[tier]}
+                                      {t.label}: {t.model}
+                                    </span>
+                                    {isLastChecked && (
+                                      <span className="text-[10px] text-[#80848e] bg-[#80848e]/15 px-1.5 py-0.5 rounded ml-auto">必选</span>
+                                    )}
+                                  </div>
                                 );
                               })}
                             </div>
@@ -480,6 +498,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               </div>
                               <div className="flex flex-wrap gap-2 ml-8">
                                 {(["fast", "default", "strong", "vision"] as const).map((tier) => {
+                                  if (tier === "vision" && !provider.has_real_vision) return null;
                                   const t = provider.models[tier];
                                   if (!t) return null;
                                   return (
@@ -525,8 +544,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <div className="space-y-4">
                 {providerList.map((provider) => {
                   const saved = getSavedKeyForProvider(provider.id);
-                  const defaultModel = provider.models.default?.model || "";
-                  const input = keyInputs[provider.id] || { key: "", model: defaultModel, show: false };
+                  const input = keyInputs[provider.id] || { key: "", show: false };
                   return (
                     <div key={provider.id} className="bg-[#2b2d31] rounded-xl p-6 border border-[#1e1f22] space-y-4">
                       <div className="flex items-center justify-between">
@@ -555,59 +573,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       )}
 
                       <div className="space-y-3">
-                        <div>
-                          <label className="block text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-1">
-                            模型
-                          </label>
-                            <select
-                              value={input.modelMode}
-                              onChange={(e) => {
-                                const mode = e.target.value as "preset" | "custom";
-                                const defModel = provider.models.default?.model || "";
-                                setKeyInputs((prev) => ({
-                                  ...prev,
-                                  [provider.id]: {
-                                    ...prev[provider.id],
-                                    modelMode: mode,
-                                    model: mode === "preset" ? (provider.preset_models?.[0] || defModel) : prev[provider.id].model,
-                                  },
-                                }));
-                              }}
-                              className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm mb-2"
-                            >
-                              <option value="preset">预设模型</option>
-                              <option value="custom">自定义输入</option>
-                            </select>
-                            {input.modelMode === "preset" ? (
-                              <select
-                                value={input.model}
-                                onChange={(e) =>
-                                  setKeyInputs((prev) => ({
-                                    ...prev,
-                                    [provider.id]: { ...prev[provider.id], model: e.target.value },
-                                  }))
-                                }
-                                className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
-                              >
-                                {(provider.preset_models || [provider.models.default?.model || ""]).map((m) => (
-                                  <option key={m} value={m}>{m}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <input
-                                type="text"
-                                value={input.customModel}
-                                onChange={(e) =>
-                                  setKeyInputs((prev) => ({
-                                    ...prev,
-                                    [provider.id]: { ...prev[provider.id], customModel: e.target.value },
-                                  }))
-                                }
-                                placeholder={provider.models.default?.model || ""}
-                                className="w-full px-3 py-2 bg-[#1e1f22] text-white rounded-lg border border-[#3f4147] outline-none focus:border-[#5865f2] transition-colors text-sm"
-                              />
-                          )}
-                        </div>
                         <div>
                           <label className="block text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-1">
                             API Key
