@@ -50,7 +50,13 @@ async def update_settings(
         current_user.enabled_providers = settings_in.enabled_providers
         # Keep preferred_llm in sync: use the first enabled provider as default
         if settings_in.enabled_providers and settings_in.preferred_llm is None:
-            current_user.preferred_llm = settings_in.enabled_providers[0]
+            if isinstance(settings_in.enabled_providers, dict):
+                # Dict format: keys are provider IDs
+                first_provider = next(iter(settings_in.enabled_providers), None)
+                if first_provider:
+                    current_user.preferred_llm = first_provider
+            elif isinstance(settings_in.enabled_providers, list) and len(settings_in.enabled_providers) > 0:
+                current_user.preferred_llm = settings_in.enabled_providers[0]
         updated = True
 
     if settings_in.api_key is not None:
@@ -276,28 +282,32 @@ async def list_providers(
     providers = []
     for provider_id, config in PROVIDER_CONFIG.items():
         display = _PROVIDER_DISPLAY.get(provider_id, {})
+        has_vision = provider_id in PROVIDERS_WITH_REAL_VISION
+        models: dict[str, dict[str, str]] = {
+            "fast": {
+                "model": config.get("fast_model", config["default_model"]),
+                "label": TIER_LABELS["fast"],
+            },
+            "default": {
+                "model": config["default_model"],
+                "label": TIER_LABELS["default"],
+            },
+            "strong": {
+                "model": config.get("strong_model", config["default_model"]),
+                "label": TIER_LABELS["strong"],
+            },
+        }
+        # Only include vision tier for providers with real vision capability
+        if has_vision and config.get("vision_model"):
+            models["vision"] = {
+                "model": config["vision_model"],
+                "label": TIER_LABELS["vision"],
+            }
         providers.append({
             "id": provider_id,
             "name": display.get("name", provider_id),
-            "models": {
-                "fast": {
-                    "model": config.get("fast_model", config["default_model"]),
-                    "label": TIER_LABELS["fast"],
-                },
-                "default": {
-                    "model": config["default_model"],
-                    "label": TIER_LABELS["default"],
-                },
-                "strong": {
-                    "model": config.get("strong_model", config["default_model"]),
-                    "label": TIER_LABELS["strong"],
-                },
-                "vision": {
-                    "model": config.get("vision_model", config["default_model"]),
-                    "label": TIER_LABELS["vision"],
-                },
-            },
-            "has_real_vision": provider_id in PROVIDERS_WITH_REAL_VISION,
+            "models": models,
+            "has_real_vision": has_vision,
             "has_api_key": provider_id in user_providers,
             "preset_models": display.get("preset_models", [config["default_model"]]),
             "base_url": config.get("base_url") or "",
