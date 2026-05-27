@@ -39,24 +39,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (username, password) => {
     const { data } = await authApi.login({ username, password });
     const responseData = data.data;
-    if (responseData) {
-      localStorage.setItem("token", responseData.token.access_token);
-      const userTheme = responseData.user.theme || "dark";
-      applyTheme(userTheme);
-      set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true, theme: userTheme });
-      wsService.connect();
+    if (!responseData) {
+      throw new Error("Login failed: empty response from server");
     }
+    localStorage.setItem("token", responseData.token.access_token);
+    const userTheme = responseData.user.theme || "dark";
+    applyTheme(userTheme);
+    set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true, theme: userTheme });
+    wsService.connect();
   },
   register: async (username, password, displayName) => {
     const { data } = await authApi.register({ username, password, display_name: displayName });
     const responseData = data.data;
-    if (responseData) {
-      localStorage.setItem("token", responseData.token.access_token);
-      const userTheme = responseData.user.theme || "dark";
-      applyTheme(userTheme);
-      set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true, theme: userTheme });
-      wsService.connect();
+    if (!responseData) {
+      throw new Error("Registration failed: empty response from server");
     }
+    localStorage.setItem("token", responseData.token.access_token);
+    const userTheme = responseData.user.theme || "dark";
+    applyTheme(userTheme);
+    set({ user: responseData.user, token: responseData.token.access_token, isAuthenticated: true, theme: userTheme });
+    wsService.connect();
   },
   logout: () => {
     localStorage.removeItem("token");

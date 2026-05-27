@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { BookOpen } from "lucide-react";
+import { AxiosError } from "axios";
 import { useAuthStore } from "../../stores";
 
 export default function RegisterPage() {
@@ -10,6 +11,22 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
   const { register } = useAuthStore();
   const navigate = useNavigate();
+
+  const getErrorMessage = (err: unknown): string => {
+    if (err instanceof AxiosError) {
+      const detail = err.response?.data?.detail;
+      if (detail) return String(detail);
+      if (err.response?.status === 400) return String(err.response?.data?.detail ?? "Bad request");
+      if (err.response?.status && err.response?.status >= 500) {
+        return `Server error (${err.response.status}). Please try again later.`;
+      }
+      if (err.code === "ERR_NETWORK" || err.code === "ECONNREFUSED") {
+        return "Cannot connect to server. Is the backend running?";
+      }
+    }
+    if (err instanceof Error) return err.message;
+    return "Username already exists";
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,8 +38,8 @@ export default function RegisterPage() {
     try {
       await register(username, password, displayName || undefined);
       navigate("/");
-    } catch {
-      setError("Username already exists");
+    } catch (err) {
+      setError(getErrorMessage(err));
     }
   };
 

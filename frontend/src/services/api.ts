@@ -18,8 +18,15 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem("token");
-      window.location.href = "/login";
+      // Don't redirect to login if we're already on the login or register page —
+      // 401 on /auth/login is normal (wrong credentials) and shouldn't trigger
+      // a full page reload that destroys the error state.
+      const requestUrl: string = error.config?.url ?? "";
+      const isAuthEndpoint = requestUrl.includes("/auth/login") || requestUrl.includes("/auth/register");
+      if (!isAuthEndpoint) {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(error);
   },

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { BookOpen } from "lucide-react";
+import { AxiosError } from "axios";
 import { useAuthStore } from "../../stores";
 
 export default function LoginPage() {
@@ -10,14 +11,30 @@ export default function LoginPage() {
   const { login } = useAuthStore();
   const navigate = useNavigate();
 
+  const getErrorMessage = (err: unknown): string => {
+    if (err instanceof AxiosError) {
+      // Prefer backend detail message, fall back to status text
+      const detail = err.response?.data?.detail;
+      if (detail) return String(detail);
+      if (err.response?.status === 401) return "Invalid username or password";
+      if (err.response?.status && err.response?.status >= 500) {
+        return `Server error (${err.response.status}). Please try again later.`;
+      }
+      if (err.code === "ERR_NETWORK" || err.code === "ECONNREFUSED") {
+        return "Cannot connect to server. Is the backend running?";
+      }
+    }
+    return "Invalid username or password";
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     try {
       await login(username, password);
       navigate("/");
-    } catch {
-      setError("Invalid username or password");
+    } catch (err) {
+      setError(getErrorMessage(err));
     }
   };
 
