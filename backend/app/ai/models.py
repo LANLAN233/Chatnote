@@ -162,38 +162,6 @@ def _is_tier_allowed(tier: str, provider: str, tier_prefs: dict[str, list[str]] 
     return bool(allowed) and tier in allowed
 
 
-def _resolve_model_id(
-    api_key_record: UserApiKey | None,
-    config: dict,
-    use_vision: bool,
-) -> str:
-    # Vision requests always use the configured vision model,
-    # not the user's custom model (which may not support images)
-    if use_vision:
-        return config["vision_model"]
-    if api_key_record and api_key_record.model:
-        return api_key_record.model
-    return config["default_model"]
-
-
-def _resolve_tier_model_id(
-    api_key_record: UserApiKey | None,
-    config: dict[str, Any],
-    tier: str,
-) -> str:
-    if api_key_record and api_key_record.model:
-        return api_key_record.model
-
-    normalized_tier = tier.lower()
-    if normalized_tier == "strong":
-        return config.get("strong_model", config["default_model"])
-    if normalized_tier == "fast":
-        return config.get("fast_model", config["default_model"])
-    if normalized_tier == "vision":
-        return config.get("vision_model", config["default_model"])
-    return config["default_model"]
-
-
 async def _fetch_user_and_providers(
     user_id: int,
     db: AsyncSession,
@@ -288,12 +256,13 @@ async def get_model_for_user(
         return None
 
     # Filter providers by tier preferences (dict format only)
+    # get_model_for_user is a general-purpose function: accept any provider
+    # with at least one tier enabled, not just "default" (which may not exist in dict)
     tier_prefs = _get_tier_preferences(user)
     if tier_prefs is not None:
-        effective_tier = "vision" if use_vision else "default"
-        providers = [p for p in providers if _is_tier_allowed(effective_tier, p, tier_prefs)]
+        providers = [p for p in providers if tier_prefs.get(p, [])]
         if not providers:
-            logger.info("No provider with tier '%s' enabled for user %d", effective_tier, user_id)
+            logger.info("No enabled provider for user %d", user_id)
             return None
 
     # For vision, only consider providers with real vision capability
@@ -451,6 +420,8 @@ def _resolve_tier_model_id(
         return config.get("strong_model", config["default_model"])
     if normalized_tier == "fast":
         return config.get("fast_model", config["default_model"])
+    if normalized_tier == "vision":
+        return config.get("vision_model", config["default_model"])
     return config["default_model"]
 
 
