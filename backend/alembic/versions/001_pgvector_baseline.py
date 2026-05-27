@@ -1,7 +1,6 @@
 """PostgreSQL + pgvector baseline migration.
 
 Creates ALL tables from scratch for PostgreSQL with pgvector extension.
-Replaces all previous SQLite migration files.
 
 Revision ID: 001_pgvector_baseline
 Revises: None (root migration)
