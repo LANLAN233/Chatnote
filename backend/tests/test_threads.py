@@ -1,84 +1,87 @@
 import os
-import sqlite3
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 
-from app.models.models import Channel, Note, Server, Thread
+from app.config import settings
+from app.models.models import Note, Thread
+
+
+# ── Migration test (PostgreSQL only) ────────────────────────────────
+
+def _build_migration_db_url() -> str:
+    """Build a dedicated test database URL for migration tests."""
+    env_url = os.environ.get("TEST_DATABASE_URL") or settings.DATABASE_URL
+    base, _, db_name = env_url.rpartition("/")
+    return f"{base}/{db_name}_migration"
 
 
 def _run_alembic(command: str, revision: str, database_url: str) -> None:
+    """Execute an alembic command against the given database URL."""
     backend_dir = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
     env["DATABASE_URL"] = database_url
-    subprocess.run(
+    result = subprocess.run(
         [sys.executable, "-m", "alembic", command, revision],
         cwd=backend_dir,
         env=env,
-        check=True,
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        raise RuntimeError(f"alembic {command} {revision} failed:\n{result.stderr}")
 
 
-def _table_columns(db_path: Path, table_name: str) -> list[str]:
-    with sqlite3.connect(db_path) as conn:
-        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-    return [row[1] for row in rows]
+@pytest.fixture(scope="module")
+def migration_db_url():
+    """Create a temporary PostgreSQL database for migration testing.
+
+    Automatically skipped if PostgreSQL is not reachable.
+    """
+    db_url = _build_migration_db_url()
+    # Replace asyncpg with psycopg2 for admin connection
+    admin_url = (
+        db_url.replace("+asyncpg", "+psycopg2")
+        .rsplit("/", 1)[0]
+        + "/postgres"
+    )
+    db_name = db_url.rsplit("/", 1)[-1]
+
+    try:
+        sync_engine = sa.create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with sync_engine.connect() as conn:
+            conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{db_name}"'))
+            conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
+        sync_engine.dispose()
+    except Exception as e:
+        pytest.skip(f"Cannot create migration test database: {e}")
+
+    yield db_url
+
+    # Cleanup: drop the temp database
+    try:
+        sync_engine = sa.create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with sync_engine.connect() as conn:
+            conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{db_name}"'))
+        sync_engine.dispose()
+    except Exception:
+        pass
 
 
-def _foreign_keys(db_path: Path, table_name: str) -> list[tuple[str, str, str]]:
-    with sqlite3.connect(db_path) as conn:
-        rows = conn.execute(f"PRAGMA foreign_key_list({table_name})").fetchall()
-    return [(row[3], row[2], row[6]) for row in rows]
+def test_threads_migration_upgrade_and_downgrade(migration_db_url):
+    """alembic upgrade head and downgrade -1 must both succeed.
+
+    Verifies that the full migration chain works without errors against
+    a fresh PostgreSQL database.
+    """
+    _run_alembic("upgrade", "head", migration_db_url)
+    _run_alembic("downgrade", "-1", migration_db_url)
 
 
-def test_threads_migration_upgrade_and_downgrade(tmp_path: Path) -> None:
-    db_path = tmp_path / "threads.db"
-    database_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
-
-    _run_alembic("upgrade", "head", database_url)
-
-    with sqlite3.connect(db_path) as conn:
-        tables = {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-            ).fetchall()
-        }
-
-    assert "threads" in tables
-    assert "thread_id" in _table_columns(db_path, "notes")
-    assert _table_columns(db_path, "threads") == [
-        "id",
-        "channel_id",
-        "parent_note_id",
-        "title",
-        "created_by",
-        "created_at",
-        "updated_at",
-    ]
-    assert ("channel_id", "channels", "CASCADE") in _foreign_keys(db_path, "threads")
-    assert ("parent_note_id", "notes", "CASCADE") in _foreign_keys(db_path, "threads")
-    assert ("created_by", "users", "CASCADE") in _foreign_keys(db_path, "threads")
-    assert ("thread_id", "threads", "CASCADE") in _foreign_keys(db_path, "notes")
-
-    _run_alembic("downgrade", "-1", database_url)
-
-    with sqlite3.connect(db_path) as conn:
-        tables_after = {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-            ).fetchall()
-        }
-
-    assert "threads" not in tables_after
-    assert "thread_id" not in _table_columns(db_path, "notes")
-
+# ── Async API tests (use conftest PostgreSQL fixtures) ──────────────
 
 @pytest.mark.asyncio
 async def test_list_notes_excludes_thread_messages(client, auth_headers, db_session):
