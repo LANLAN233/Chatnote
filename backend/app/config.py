@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
 
-    DATABASE_URL: str = "postgresql+asyncpg://chatnote:changeme@localhost:6432/chatnote"
+    DATABASE_URL: str = "postgresql+asyncpg://chatnote:changeme@localhost:5432/chatnote"
 
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS: int = 768
