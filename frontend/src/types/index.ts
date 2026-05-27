@@ -5,7 +5,7 @@ export interface User {
   avatar: string | null;
   status: string;
   preferred_llm: string;
-  enabled_providers: string[] | null;
+  enabled_providers: Record<string, string[]> | string[] | null;
   theme: string;
   notifications_enabled: boolean;
   api_key_encrypted: string | null;
@@ -16,7 +16,7 @@ export interface User {
 export interface UserSettingsUpdate {
   display_name?: string;
   preferred_llm?: string;
-  enabled_providers?: string[];
+  enabled_providers?: Record<string, string[]> | string[];
   api_key?: string;
   theme?: string;
   notifications_enabled?: boolean;

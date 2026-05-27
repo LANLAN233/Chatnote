@@ -19,8 +19,9 @@ interface AuthState {
   fetchApiKeys: () => Promise<void>;
   addApiKey: (data: { provider: string; api_key: string; model?: string }) => Promise<void>;
   deleteApiKey: (id: number) => Promise<void>;
-  setEnabledProviders: (providers: string[]) => Promise<void>;
+  setEnabledProviders: (providers: Record<string, string[]> | string[]) => Promise<void>;
   toggleProvider: (providerId: string) => Promise<void>;
+  toggleProviderTier: (providerId: string, tier: string) => Promise<void>;
 }
 
 const getInitialTheme = () => "dark";
@@ -116,13 +117,57 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await settingsApi.update({ enabled_providers: providers });
   },
   toggleProvider: async (providerId) => {
-    const current = get().user?.enabled_providers || [];
-    const newProviders = current.includes(providerId)
-      ? current.filter((p) => p !== providerId)
-      : [...current, providerId];
-    // Don't allow deselecting the last provider
-    if (newProviders.length === 0) return;
-    await get().setEnabledProviders(newProviders);
+    const current = get().user?.enabled_providers;
+    // Convert to dict format if legacy list
+    const currentDict: Record<string, string[]> = !current
+      ? {}
+      : Array.isArray(current)
+        ? Object.fromEntries(current.map((p) => [p, ["fast", "default", "strong"]]))
+        : { ...current };
+
+    if (currentDict[providerId]) {
+      // Provider is enabled → disable it (remove from dict)
+      delete currentDict[providerId];
+    } else {
+      // Provider is disabled → enable with all available tiers
+      currentDict[providerId] = ["fast", "default", "strong"];
+    }
+
+    // Don't allow deselecting all providers
+    if (Object.keys(currentDict).length === 0) return;
+    await get().setEnabledProviders(currentDict);
+  },
+  toggleProviderTier: async (providerId, tier) => {
+    const current = get().user?.enabled_providers;
+    // Convert to dict format if legacy list
+    const currentDict: Record<string, string[]> = !current
+      ? {}
+      : Array.isArray(current)
+        ? Object.fromEntries(current.map((p) => [p, ["fast", "default", "strong"]]))
+        : { ...current };
+
+    // Ensure provider entry exists
+    if (!currentDict[providerId]) {
+      currentDict[providerId] = [];
+    }
+
+    const tiers = currentDict[providerId];
+    if (tiers.includes(tier)) {
+      // Remove tier
+      currentDict[providerId] = tiers.filter((t) => t !== tier);
+      // Remove provider entry if no tiers left
+      if (currentDict[providerId].length === 0) {
+        delete currentDict[providerId];
+      }
+    } else {
+      // Add tier
+      currentDict[providerId] = [...tiers, tier];
+    }
+
+    // Don't allow deselecting all tiers across all providers
+    const totalTiers = Object.values(currentDict).reduce((sum, t) => sum + t.length, 0);
+    if (totalTiers === 0) return;
+    await get().setEnabledProviders(currentDict);
   },
 }));
 
