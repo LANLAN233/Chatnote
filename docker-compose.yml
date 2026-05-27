@@ -12,6 +12,8 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: chatnote
       POSTGRES_USER: chatnote
@@ -27,31 +29,6 @@ services:
     networks:
       - chatnote-net
 
-  # ── Connection Pooler ─────────────────────────────────
-  pgbouncer:
-    image: bitnami/pgbouncer:latest
-    restart: unless-stopped
-    environment:
-      PGBOUNCER_POOL_MODE: transaction
-      PGBOUNCER_DEFAULT_POOL_SIZE: "10"
-      PGBOUNCER_MAX_CLIENT_CONN: "200"
-      PGBOUNCER_AUTH_TYPE: trust
-      POSTGRESQL_HOST: postgres
-      POSTGRESQL_PORT: "5432"
-      POSTGRESQL_USERNAME: chatnote
-      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRESQL_DATABASE: chatnote
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U chatnote -d chatnote"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - chatnote-net
-
   # ── Backend API ───────────────────────────────────────
   backend:
     build:
@@ -59,7 +36,7 @@ services:
       dockerfile: Dockerfile.backend
     restart: unless-stopped
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://chatnote:changeme@pgbouncer:6432/chatnote}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://chatnote:changeme@postgres:5432/chatnote}
       - SECRET_KEY=${SECRET_KEY:-chatnote-secret-key-change-in-production}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -71,7 +48,7 @@ services:
     volumes:
       - uploads:/app/uploads
     depends_on:
-      pgbouncer:
+      postgres:
         condition: service_healthy
     networks:
       - chatnote-net
