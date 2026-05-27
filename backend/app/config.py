@@ -30,7 +30,11 @@ class Settings(BaseSettings):
 
     MOONSHOT_API_KEY: str = ""
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",  # Ignore env vars meant for docker-compose (e.g. POSTGRES_PASSWORD)
+    }
 
 
 settings = Settings()
