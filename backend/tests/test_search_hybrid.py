@@ -1,6 +1,6 @@
 """Tests for search.py — hybrid search engine using pgvector + tsvector + RRF.
 
-All tests are mock-based since the test DB is SQLite (no pgvector support).
+All tests are mock-based (no external services required).
 Database execute calls are mocked; EmbeddingService.generate_embedding is patched.
 """
 import asyncio

@@ -2,6 +2,9 @@
 
 Verifies the migration script structure, logic, and the complete data flow
 between components — without requiring a PostgreSQL instance.
+
+Note: The one-time SQLite→PostgreSQL migration scripts have been archived to
+_archive/migration-scripts/. These tests validate the archived scripts.
 """
 import importlib.util
 import os
@@ -14,9 +17,16 @@ import pytest
 # ── Path Helpers ─────────────────────────────────────────────────────────────
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-MIGRATION_SCRIPT = BACKEND_DIR / "scripts" / "migrate_sqlite_to_pg.py"
-VERIFY_SCRIPT = BACKEND_DIR / "scripts" / "verify_migration.py"
+ARCHIVE_DIR = BACKEND_DIR.parent / "_archive" / "migration-scripts"
+MIGRATION_SCRIPT = ARCHIVE_DIR / "migrate_sqlite_to_pg.py"
+VERIFY_SCRIPT = ARCHIVE_DIR / "verify_migration.py"
 BACKFILL_SCRIPT = BACKEND_DIR / "app" / "scripts" / "backfill_embeddings.py"
+
+# Skip all migration tests if the scripts were archived/removed
+pytestmark = pytest.mark.skipif(
+    not MIGRATION_SCRIPT.exists(),
+    reason="Migration scripts archived to _archive/migration-scripts/",
+)
 
 
 # ── Script Existence Tests ───────────────────────────────────────────────────

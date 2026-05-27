@@ -1,6 +1,6 @@
 """Tests for embedding.py — EmbeddingService using OpenAI text-embedding-3-small.
 
-Tests are import/mock-based since the test DB is SQLite (no pgvector support).
+Tests are import/mock-based (no external API calls).
 OpenAI client calls are mocked; DB interactions use AsyncMock where needed.
 """
 
