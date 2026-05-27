@@ -24,7 +24,7 @@ class UserResponse(BaseModel):
     avatar: str | None
     status: str
     preferred_llm: str
-    enabled_providers: list[str] | None = None
+    enabled_providers: dict[str, Any] | list[str] | None = None
     theme: str
     notifications_enabled: bool
     created_at: datetime.datetime
@@ -36,7 +36,7 @@ class UserResponse(BaseModel):
 class UserSettingsUpdate(BaseModel):
     display_name: str | None = None
     preferred_llm: str | None = None
-    enabled_providers: list[str] | None = None
+    enabled_providers: dict[str, Any] | list[str] | None = None
     api_key: str | None = None
     theme: str | None = None
     notifications_enabled: bool | None = None

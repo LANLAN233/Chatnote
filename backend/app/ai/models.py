@@ -19,7 +19,6 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "default_model": "deepseek-v4-flash",
         "fast_model": "deepseek-v4-flash",
         "strong_model": "deepseek-v4-pro",
-        "vision_model": "deepseek-v4-flash",
     },
     "zhipu": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
@@ -47,14 +46,12 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "default_model": "kimi-k2.6",
         "fast_model": "kimi-k2.6",
         "strong_model": "deepseek-v4-pro",
-        "vision_model": "kimi-k2.6",
     },
     "opencode-go": {
         "base_url": "https://opencode.ai/zen/go/v1",
         "default_model": "deepseek-v4-pro",
         "fast_model": "deepseek-v4-flash",
         "strong_model": "deepseek-v4-pro",
-        "vision_model": "kimi-k2.6",
     },
     "moonshot": {
         "base_url": "https://api.moonshot.cn/v1",
@@ -122,15 +119,47 @@ def _infer_provider_from_model(model: OpenAIChat | None) -> str | None:
 def _resolve_enabled_providers(user: User | None) -> list[str]:
     """Return the list of enabled provider IDs for a user.
 
+    enabled_providers supports two formats:
+      - Legacy list:  ["deepseek", "moonshot"]
+      - Dict format:  {"deepseek": ["fast", "strong"], "moonshot": ["vision"]}
+        (tier preferences are extracted separately via _get_tier_preferences)
+
     Falls back to preferred_llm if enabled_providers is not set (legacy users).
     Excludes "mock" since it has no real API key.
     """
     if user and user.enabled_providers:
-        return [p for p in user.enabled_providers if p != "mock"]
+        if isinstance(user.enabled_providers, dict):
+            return [p for p in user.enabled_providers if p != "mock"]
+        elif isinstance(user.enabled_providers, list):
+            return [p for p in user.enabled_providers if p != "mock"]
     if user and user.preferred_llm:
         provider = user.preferred_llm
         return [provider] if provider != "mock" else []
     return ["deepseek"]
+
+
+def _get_tier_preferences(user: User | None) -> dict[str, list[str]] | None:
+    """Extract per-provider tier preferences from enabled_providers dict format.
+
+    Returns None for legacy list format (all tiers allowed for enabled providers),
+    or a dict mapping provider_id → [allowed_tier_names].
+    Empty tier list for a provider means all tiers disabled.
+    """
+    if user and isinstance(user.enabled_providers, dict):
+        return {k: v for k, v in user.enabled_providers.items() if k != "mock"}
+    return None
+
+
+def _is_tier_allowed(tier: str, provider: str, tier_prefs: dict[str, list[str]] | None) -> bool:
+    """Check whether a tier is allowed for a given provider.
+
+    Returns True when tier_prefs is None (legacy: all tiers allowed) or when
+    the tier is in the provider's allowed list.
+    """
+    if tier_prefs is None:
+        return True
+    allowed = tier_prefs.get(provider, [])
+    return bool(allowed) and tier in allowed
 
 
 def _resolve_model_id(
@@ -249,12 +278,23 @@ async def get_model_for_user(
     Iterates through the user's enabled_providers (or preferred_llm as fallback),
     picking the first provider that has a configured API key.
     Returns None if no API key is configured.
+
+    Respects per-provider tier preferences when enabled_providers is in dict format.
     """
     user, providers = await _fetch_user_and_providers(user_id, db)
 
     # If all providers are "mock", no real model available
     if not providers:
         return None
+
+    # Filter providers by tier preferences (dict format only)
+    tier_prefs = _get_tier_preferences(user)
+    if tier_prefs is not None:
+        effective_tier = "vision" if use_vision else "default"
+        providers = [p for p in providers if _is_tier_allowed(effective_tier, p, tier_prefs)]
+        if not providers:
+            logger.info("No provider with tier '%s' enabled for user %d", effective_tier, user_id)
+            return None
 
     # For vision, only consider providers with real vision capability
     candidate_providers = providers
@@ -321,6 +361,8 @@ async def get_model_by_tier(
     Uses the user's enabled_providers to find the first provider with a key
     that supports the requested tier. For 'vision' tier, only providers with
     real vision capability are considered.
+
+    Respects per-provider tier preferences when enabled_providers is in dict format.
     """
     user, providers = await _fetch_user_and_providers(user_id, db)
 
@@ -328,6 +370,14 @@ async def get_model_by_tier(
         return None
 
     normalized_tier = tier.lower()
+
+    # Filter providers by tier preferences (dict format only)
+    tier_prefs = _get_tier_preferences(user)
+    if tier_prefs is not None:
+        providers = [p for p in providers if _is_tier_allowed(normalized_tier, p, tier_prefs)]
+        if not providers:
+            logger.info("No provider with tier '%s' enabled for user %d", normalized_tier, user_id)
+            return None
 
     # For vision tier, only consider providers with real vision capability
     candidate_providers = providers
