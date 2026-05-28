@@ -427,7 +427,9 @@ def get_model_by_provider(
 ) -> OpenAIChat:
     """Create a model instance directly from provider + key (for testing / direct use)."""
     config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["deepseek"])
-    model_id = model or (config["vision_model"] if use_vision else config["default_model"])
+    model_id = model or (
+        config.get("vision_model", config["default_model"]) if use_vision else config["default_model"]
+    )
     return OpenAIChat(
         id=model_id,
         api_key=api_key,
