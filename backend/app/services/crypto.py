@@ -8,8 +8,9 @@ logger = logging.getLogger(__name__)
 
 _ENCRYPTION_KEY: bytes | None = None
 
-# Path to persist auto-generated key (relative to project root)
-_KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", ".encryption_key")
+# Path to persist auto-generated key — stored in a data/ subdirectory
+# that is mounted as a persistent Docker volume in production.
+_KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", ".encryption_key")
 
 
 def _load_key_from_file() -> bytes | None:

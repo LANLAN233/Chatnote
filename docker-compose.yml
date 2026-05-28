@@ -47,6 +47,7 @@ services:
       - UPLOAD_DIR=./uploads
     volumes:
       - uploads:/app/uploads
+      - backend_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +70,7 @@ services:
 volumes:
   pgdata:
   uploads:
+  backend_data:
 
 networks:
   chatnote-net:

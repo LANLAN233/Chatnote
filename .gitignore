@@ -85,3 +85,7 @@ frontend/.vite/
 /frontend/test-results/
 /frontend/e2e/screenshots/
 /frontend/e2e/.auth/
+
+# Encryption key persistence (DO NOT COMMIT)
+/backend/data/.encryption_key
+*.encryption_key
