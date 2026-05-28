@@ -219,7 +219,18 @@ async def _build_openai_chat(
     """Build an OpenAIChat instance from resolved parameters."""
     config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["deepseek"])
     extra: dict[str, Any] = {}
-    if provider == "moonshot":
+
+    # Disable thinking / reasoning mode for providers that default to it.
+    # DeepSeek models return `reasoning_content` which must be echoed back
+    # in subsequent turns — the Agno framework does not handle this, causing
+    # API errors. Moonshot/Kimi also defaults to thinking; we disable it for
+    # deterministic tool-calling behaviour.
+    _disable_thinking = (
+        provider == "moonshot"
+        or provider == "deepseek"
+        or (model_id or "").lower().startswith("deepseek")
+    )
+    if _disable_thinking:
         extra["extra_body"] = {"thinking": {"type": "disabled"}}
     return OpenAIChat(
         id=model_id,
