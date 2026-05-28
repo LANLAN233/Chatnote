@@ -409,45 +409,30 @@ async def import_schedule(
     # Release DB connection before LLM calls (5-30s per call)
     await db.close()
 
-    # ── Image import: auto-switch to Kimi if provider lacks real vision ─
+    # ── Image import: always prefer raw SDK for vision models ───────
     if has_image:
         provider = _infer_provider_from_model(model) or current_user.preferred_llm or "deepseek"
-        need_kimi = (model is None) or (not has_real_vision(provider))
 
-        if need_kimi:
+        # Strategy: raw SDK (bypasses Agno) is the ONLY reliable path for
+        # image imports. Agno's Agent.arun() has known issues with:
+        # - Kimi: doesn't support structured_outputs (JSON schema)
+        # - Multimodal content with OpenAIChat wrapper
+        # So for ALL providers, try raw SDK first.
+        kimi_client = get_kimi_vision_model_sdk()
+        if kimi_client:
             logger.info(
-                "Image import: model=%s provider=%s real_vision=%s → trying Kimi k2.5",
-                "None" if model is None else getattr(model, "id", "unknown"),
-                provider,
-                has_real_vision(provider),
+                "Image import: using raw SDK (Kimi k2.5) provider=%s model=%s",
+                provider, getattr(model, "id", "unknown") if model else "none",
             )
-            # Emit provider_switch progress event
-            op_id = f"import_schedule_{current_user.id}_{int(time.time())}"
-            await manager.broadcast_ai_progress(
-                user_id=current_user.id,
-                operation_id=op_id,
-                stage_data=AiProgressStage(
-                    stage="provider_switch",
-                    status="fallback",
-                    model="kimi",
-                    tier="fallback",
-                    message="Switching to Kimi for image import",
-                    metadata={
-                        "original_provider": provider,
-                        "reason": "no_real_vision" if model and not has_real_vision(provider) else "no_model_configured",
-                    },
-                ),
-            )
-            # Prefer raw SDK path — Kimi doesn't support Agno's structured_outputs
-            kimi_client = get_kimi_vision_model_sdk()
-            if kimi_client:
-                logger.info("Using raw SDK path for Kimi k2.5 vision")
-                result = await _call_kimi_vision_sdk(req.text, req.image_url, kimi_client)
-                return ApiResponse(success=True, data=result)
+            result = await _call_kimi_vision_sdk(req.text, req.image_url, kimi_client)
+            return ApiResponse(success=True, data=result)
 
-            # Raw SDK unavailable — fall back to Agno path (with structured_output fallback)
+        # Raw SDK unavailable → try Agno with structured_output fallback
+        need_kimi = (model is None) or (not has_real_vision(provider))
+        if need_kimi:
             kimi_model = get_kimi_vision_model()
             if kimi_model:
+                logger.info("Image import: falling back to Agno Kimi path")
                 result = await parse_schedule_import(req.text, req.image_url, kimi_model)
                 return ApiResponse(success=True, data=result)
 
@@ -461,32 +446,41 @@ async def import_schedule(
                         {
                             "type": "error",
                             "target_server": None,
-                            "message": "图片识别需要支持视觉的 AI 模型。当前提供商不支持图片识别。请在 设置 → AI 偏好 中启用支持视觉的模型（如 Kimi、GPT-4o、智谱 GLM-4V、通义千问 VL），或在服务器配置 MOONSHOT_API_KEY 以启用 Kimi 视觉后备。",
+                            "message": "图片识别需要支持视觉的 AI 模型。请在服务器配置 MOONSHOT_API_KEY 以启用 Kimi 视觉识别，或在 设置 → AI 偏好 中启用支持视觉的模型（如 GPT-4o、智谱 GLM-4V、通义千问 VL）。",
                         }
                     ],
                 },
                 message="无可用视觉模型",
             )
 
-        # User has a vision-capable provider — try it
+        # User has a non-Kimi vision-capable provider — try Agno as last resort
         logger.info(
-            "Image import: using user's vision model provider=%s model=%s",
+            "Image import: trying user's vision model via Agno provider=%s model=%s",
             provider, getattr(model, "id", "unknown"),
         )
+        result = await parse_schedule_import(req.text, req.image_url, model)
+        if _has_meaningful_data(result):
+            return ApiResponse(success=True, data=result)
 
-    # ── Run the import ───────────────────────────────────────────────
-    result = await parse_schedule_import(req.text, req.image_url, model)
-
-    # ── Post-import: if result empty and we have image, try Kimi ─────
-    if has_image and not _has_meaningful_data(result):
-        logger.info(
-            "Image import: user's model returned empty, trying Kimi fallback"
+        # User's vision model returned empty → final error
+        return ApiResponse(
+            success=False,
+            data={
+                "servers": [],
+                "schedules": [],
+                "suggestions": [
+                    {
+                        "type": "error",
+                        "target_server": None,
+                        "message": "图片识别失败。请尝试同时提供文字描述（如课程名称、时间），或使用支持图片识别的模型。",
+                    }
+                ],
+            },
+            message="图片识别失败",
         )
-        kimi_client = get_kimi_vision_model_sdk()
-        if kimi_client:
-            kimi_result = await _call_kimi_vision_sdk(req.text, req.image_url, kimi_client)
-            if _has_meaningful_data(kimi_result):
-                return ApiResponse(success=True, data=kimi_result)
+
+    # ── Text-only import (no image) ──────────────────────────────────
+    result = await parse_schedule_import(req.text, req.image_url, model)
 
     return ApiResponse(success=True, data=result)
 
