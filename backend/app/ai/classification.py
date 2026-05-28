@@ -3,6 +3,7 @@ import time
 from typing import Any
 
 from agno.agent import Agent
+from agno.models.deepseek import DeepSeek
 from agno.models.openai import OpenAIChat
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -64,7 +65,7 @@ async def _get_existing_structure(db: AsyncSession, user_id: int) -> str:
     return "\n".join(lines)
 
 
-def create_classifier_agent(model: OpenAIChat) -> Agent:
+def create_classifier_agent(model: OpenAIChat | DeepSeek) -> Agent:
     return Agent(
         model=model,
         name="Note Classifier",
@@ -130,7 +131,7 @@ async def classify_note(
     content: str,
     db: AsyncSession,
     user_id: int,
-    model: OpenAIChat | None = None,
+    model: OpenAIChat | DeepSeek | None = None,
 ) -> dict[str, Any]:
     """Classify a note using an Agno Agent with structured output.
 

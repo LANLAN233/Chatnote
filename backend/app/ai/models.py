@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agno.models.deepseek import DeepSeek
 from agno.models.openai import OpenAIChat
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -215,34 +216,58 @@ async def _build_openai_chat(
     decrypted_key: str,
     provider: str,
     model_id: str,
-) -> OpenAIChat:
-    """Build an OpenAIChat instance from resolved parameters."""
+) -> OpenAIChat | DeepSeek:
+    """Build an OpenAIChat or DeepSeek instance from resolved parameters.
+
+    Uses Agno's dedicated DeepSeek class for the 'deepseek' provider because:
+    1. Its _format_message includes `reasoning_content` — required by the
+       DeepSeek API in multi-turn tool-calling conversations. OpenAIChat
+       omits this field, causing HTTP 400 errors.
+    2. It has supports_native_structured_outputs=False — DeepSeek v4 models
+       do not support OpenAI's json_schema response_format. Sending it
+       causes the structured-output classification to fail silently,
+       falling back to hardcoded defaults (General/Notes, 30% confidence).
+    """
     config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["deepseek"])
     extra: dict[str, Any] = {}
 
-    # Disable thinking / reasoning mode for providers that default to it.
-    # DeepSeek models return `reasoning_content` which must be echoed back
-    # in subsequent turns — the Agno framework does not handle this, causing
-    # API errors. Moonshot/Kimi also defaults to thinking; we disable it for
-    # deterministic tool-calling behaviour.
+    # Disable thinking / reasoning mode for direct DeepSeek API calls.
+    # When thinking is enabled, DeepSeek returns `reasoning_content` in
+    # every response. In tool-calling turns, the API requires this field
+    # to be echoed back — even with the DeepSeek class handling it, we
+    # disable thinking for deterministic, non-reasoning tool usage.
+    # The opencode-go proxy already handles this transparently.
+    _use_deepseek_class = provider == "deepseek"
     _disable_thinking = (
         provider == "moonshot"
-        or provider == "deepseek"
-        or (model_id or "").lower().startswith("deepseek")
+        or _use_deepseek_class
     )
     if _disable_thinking:
         extra["extra_body"] = {"thinking": {"type": "disabled"}}
+
+    # Common role map: DeepSeek API uses "system" role natively
+    role_map = {
+        "system": "system",
+        "user": "user",
+        "assistant": "assistant",
+        "tool": "tool",
+        "model": "assistant",
+    }
+
+    if _use_deepseek_class:
+        return DeepSeek(
+            id=model_id,
+            api_key=decrypted_key,
+            base_url=config["base_url"],
+            role_map=role_map,
+            **extra,
+        )
+
     return OpenAIChat(
         id=model_id,
         api_key=decrypted_key,
         base_url=config["base_url"],
-        role_map={
-            "system": "system",
-            "user": "user",
-            "assistant": "assistant",
-            "tool": "tool",
-            "model": "assistant",
-        },
+        role_map=role_map,
         **extra,
     )
 
@@ -251,7 +276,7 @@ async def get_model_for_user(
     user_id: int,
     db: AsyncSession,
     use_vision: bool = False,
-) -> OpenAIChat | None:
+) -> OpenAIChat | DeepSeek | None:
     """Create an Agno OpenAIChat instance dynamically based on user's enabled providers.
 
     Iterates through the user's enabled_providers (or preferred_llm as fallback),
@@ -335,7 +360,7 @@ async def get_model_by_tier(
     user_id: int,
     db: AsyncSession,
     tier: str = "fast",
-) -> OpenAIChat | None:
+) -> OpenAIChat | DeepSeek | None:
     """Create an Agno OpenAIChat instance dynamically based on a capability tier.
 
     Uses the user's enabled_providers to find the first provider with a key
