@@ -1,5 +1,7 @@
 import logging
+import json as _json
 import time
+from collections import Counter
 from typing import Any
 
 from agno.agent import Agent
@@ -234,7 +236,7 @@ async def classify_note_ensemble(
                 status="in_progress",
                 model=fast_model_id,
                 tier="fast",
-                message="Classifying with fast model...",
+                message="正在用快速模型分类...",
             ),
         )
 
@@ -262,7 +264,7 @@ async def classify_note_ensemble(
                     status="failed",
                     model=fast_model_id,
                     tier="fast",
-                    message=f"Fast classification failed: {exc}",
+                    message=f"快速分类失败: {exc}",
                     duration_ms=int((time.time() - t_fast_start) * 1000),
                 ),
             )
@@ -280,7 +282,7 @@ async def classify_note_ensemble(
                 status="completed",
                 model=fast_model_id,
                 tier="fast",
-                message="Fast classification complete",
+                message="快速分类完成",
                 metadata={
                     "confidence": fast_confidence,
                     "server": str(fast_dict.get("suggested_server", "")),
@@ -292,6 +294,14 @@ async def classify_note_ensemble(
 
     # High confidence → return immediately
     if fast_confidence >= 0.85:
+        # Enrich with semantic tag suggestions
+        fast_tags = fast_dict.get("tags", []) or []
+        semantic_tags = await _semantic_tag_suggestion(content, db, user_id)
+        # Merge: deduplicate, semantic first, LLM tags appended
+        merged = list(dict.fromkeys(semantic_tags + fast_tags))
+        fast_dict["tags"] = merged
+        fast_dict["semantic_tags"] = semantic_tags
+
         if _emit:
             await ws_manager.broadcast_ai_progress(
                 user_id=user_id,
@@ -301,7 +311,7 @@ async def classify_note_ensemble(
                     status="completed",
                     model=fast_model_id,
                     tier="fast",
-                    message="Classification complete",
+                    message="分类完成",
                 ),
             )
         return {
@@ -349,7 +359,7 @@ async def classify_note_ensemble(
                 status="in_progress",
                 model=strong_model_id,
                 tier="strong",
-                message="Low confidence, reviewing with strong model...",
+                message="置信度不足，正在用深度模型复核...",
             ),
         )
 
@@ -376,7 +386,7 @@ async def classify_note_ensemble(
                     status="failed",
                     model=strong_model_id,
                     tier="strong",
-                    message=f"Strong review failed: {exc}",
+                    message=f"深度复核失败: {exc}",
                     duration_ms=int((time.time() - t_strong_start) * 1000),
                 ),
             )
@@ -427,7 +437,7 @@ async def classify_note_ensemble(
                 status="completed",
                 model=strong_model_id,
                 tier="strong",
-                message="Strong review complete",
+                message="深度复核完成",
                 metadata={
                     "confidence": strong_confidence,
                     "consistency": str(final.get("ensemble_consistency", "")),
@@ -448,6 +458,13 @@ async def classify_note_ensemble(
                 message="Classification complete",
             ),
         )
+
+    # Enrich with semantic tag suggestions before returning
+    final_tags = final.get("tags", []) or []
+    semantic_tags = await _semantic_tag_suggestion(content, db, user_id)
+    merged = list(dict.fromkeys(semantic_tags + final_tags))
+    final["tags"] = merged
+    final["semantic_tags"] = semantic_tags
 
     return final
 
@@ -490,10 +507,72 @@ async def resolve_classification(
     return classification
 
 
-async def _semantic_tag_suggestion(note_content: str, db: AsyncSession) -> list[str]:
-    """Use embedding similarity to suggest tags based on existing notes.
+async def _semantic_tag_suggestion(
+    note_content: str, db: AsyncSession, user_id: int, top_k: int = 5
+) -> list[str]:
+    """Suggest tags based on embedding similarity to existing notes.
 
-    Optional enhancement. Currently returns an empty list — the placeholder
-    is available for future integration with the two-model ensemble pipeline.
+    Pipeline:
+    1. Generate embedding for the current note content
+    2. Vector search to find top-k most similar existing notes
+    3. Collect their ai_tags + user_tags
+    4. Return highest-frequency tags as suggestions
+
+    Args:
+        note_content: The note text to generate tag suggestions for.
+        db: Async database session.
+        user_id: User ID to scope the search.
+        top_k: Number of similar notes to consult (default 5).
+
+    Returns:
+        List of suggested tag strings, sorted by frequency (most common first).
+        Returns empty list if embedding API is unavailable or no similar notes found.
     """
-    return []
+    from app.models.models import Note
+    from app.services.embedding import EmbeddingService
+
+    # 1. Generate embedding for the current note
+    embedding = await EmbeddingService.generate_embedding(note_content[:5000])
+    if embedding is None:
+        return []
+
+    # 2. Vector search for similar notes (prefer chunk search for precision)
+    try:
+        from app.services.search import chunk_vector_search, vector_search
+        chunk_results = await chunk_vector_search(note_content, user_id, db, limit=top_k + 1)
+        if chunk_results:
+            similar_notes = chunk_results[:top_k]
+        else:
+            similar_results = await vector_search(note_content, user_id, db, limit=top_k + 1)
+            similar_notes = similar_results[:top_k]
+    except Exception:
+        logger.debug("Semantic tag suggestion: search failed, returning empty")
+        return []
+
+    if not similar_notes:
+        return []
+
+    # 3. Fetch tags from similar notes
+    note_ids = [r["note_id"] for r in similar_notes]
+    result = await db.execute(
+        select(Note.ai_tags, Note.user_tags).where(Note.id.in_(note_ids))
+    )
+
+    # 4. Aggregate tags by frequency
+    tag_counter: Counter = Counter()
+    for ai_tags, user_tags in result:
+        try:
+            for tag in _json.loads(ai_tags or "[]"):
+                tag_counter[tag] += 1
+        except (_json.JSONDecodeError, TypeError):
+            pass
+        try:
+            for tag in _json.loads(user_tags or "[]"):
+                tag_counter[tag] += 1
+        except (_json.JSONDecodeError, TypeError):
+            pass
+
+    if not tag_counter:
+        return []
+
+    return [tag for tag, _ in tag_counter.most_common(8)]

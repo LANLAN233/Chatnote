@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = "./uploads"
 
+    # ── Reranker ────────────────────────────────────────────
+    JINA_API_KEY: str = ""
+
     # ── Deprecated legacy keys (use user-scoped keys via settings UI) ──
     LLM_PROVIDER: str = "deepseek"
     LLM_API_KEY: str = ""

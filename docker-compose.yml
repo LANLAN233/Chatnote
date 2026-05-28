@@ -43,6 +43,7 @@ services:
       - MOONSHOT_API_KEY=${MOONSHOT_API_KEY}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-768}
+      - JINA_API_KEY=${JINA_API_KEY}
       - DEBUG=${DEBUG:-false}
       - UPLOAD_DIR=./uploads
     volumes:

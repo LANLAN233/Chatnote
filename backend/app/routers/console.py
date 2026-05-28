@@ -585,7 +585,7 @@ async def console_execute(
     parsed = parse_input(req.input)
     await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
         stage="parsing", status="completed", model="", tier="",
-        message="Input parsed", duration_ms=int((time.time() - t0) * 1000)
+        message="输入解析完成", duration_ms=int((time.time() - t0) * 1000)
     ))
 
     # Extract loaded notes from session context (set by @Server #Channel without question)
@@ -615,7 +615,7 @@ async def console_execute(
             )
         await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
             stage="skill_dispatch", status="in_progress", model="", tier="",
-            message=f"Dispatching to skill: {parsed.skill_name}",
+            message=f"正在调度技能: {parsed.skill_name}",
             metadata={"skill": parsed.skill_name}
         ))
         # Release DB connection before skill dispatch (skill makes 5-30s LLM calls)
@@ -625,7 +625,7 @@ async def console_execute(
         result = await _dispatch_skill(parsed.skill_name, parsed.skill_args, current_user.id, None, loaded_notes=loaded_notes, operation_id=operation_id)
         await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
             stage="skill_execution", status="completed", model="", tier="",
-            message=f"Skill {parsed.skill_name} completed",
+            message=f"技能 {parsed.skill_name} 执行完成",
             metadata={"skill": parsed.skill_name, "result_type": result.get("type", "unknown")},
             duration_ms=int((time.time() - t_skill) * 1000)
         ))
@@ -654,7 +654,7 @@ async def console_execute(
         if (parsed.server_name or parsed.channel_name) and _has_question:
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="skill_dispatch", status="in_progress", model="", tier="",
-                message="Dispatching to skill: query",
+                message="正在调度知识库查询...",
                 metadata={"skill": "query", "routed_by": "pattern"}
             ))
             # Release DB connection before query dispatch (LLM calls inside)
@@ -667,7 +667,7 @@ async def console_execute(
             if query_result is not None:
                 await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                     stage="skill_execution", status="completed", model="", tier="",
-                    message="Query skill completed",
+                    message="知识库查询完成",
                     metadata={"skill": "query"},
                     duration_ms=int((time.time() - t_query) * 1000)
                 ))
@@ -691,14 +691,14 @@ async def console_execute(
         if (parsed.server_name or parsed.channel_name) and not _has_question:
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="context_loading", status="in_progress", model="", tier="",
-                message="Loading context from @Server #Channel..."
+                message="正在加载上下文...",
             ))
             t_ctx = time.time()
             context_result = await _load_context(parsed, current_user.id, db, session)
             if context_result["type"] == "context_loaded":
                 await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                     stage="context_loading", status="completed", model="", tier="",
-                    message="Context loaded successfully",
+                    message="上下文加载成功",
                     duration_ms=int((time.time() - t_ctx) * 1000)
                 ))
                 ws_manager.cleanup_operation(operation_id)
@@ -730,7 +730,7 @@ async def console_execute(
 
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="intent_analysis", status="in_progress", model="fast-tier", tier="fast",
-                message="Analyzing intent..."
+                message="正在分析意图...",
             ))
             t_intent = time.time()
             intent_result = await analyze_intent(
@@ -738,7 +738,7 @@ async def console_execute(
             )
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="intent_analysis", status="completed", model="fast-tier", tier="fast",
-                message=f"Intent analysis complete" if intent_result.skill_name else "No intent match found",
+                message="意图分析完成" if intent_result.skill_name else "未匹配到意图",
                 metadata={"intent": intent_result.intent, "matched_skill": intent_result.skill_name},
                 duration_ms=int((time.time() - t_intent) * 1000)
             ))
@@ -788,7 +788,7 @@ async def console_execute(
     # Fallback: no specific routing matched
     await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
         stage="fallback", status="fallback", model="", tier="",
-        message="Using fallback execution"
+        message="使用备用流程处理"
     ))
 
     # Dispatch to plugins first
@@ -861,7 +861,7 @@ async def server_console_execute(
     parsed = parse_input(req.input)
     await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
         stage="parsing", status="completed", model="", tier="",
-        message="Input parsed", duration_ms=int((time.time() - t0) * 1000)
+        message="输入解析完成", duration_ms=int((time.time() - t0) * 1000)
     ))
 
     # Extract loaded notes from session context (set by @Server #Channel without question)
@@ -890,7 +890,7 @@ async def server_console_execute(
             )
         await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
             stage="skill_dispatch", status="in_progress", model="", tier="",
-            message=f"Dispatching to skill: {parsed.skill_name}",
+            message=f"正在调度技能: {parsed.skill_name}",
             metadata={"skill": parsed.skill_name}
         ))
         # Release DB connection before skill dispatch (skill makes 5-30s LLM calls)
@@ -905,7 +905,7 @@ async def server_console_execute(
         )
         await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
             stage="skill_execution", status="completed", model="", tier="",
-            message=f"Skill {parsed.skill_name} completed",
+            message=f"技能 {parsed.skill_name} 执行完成",
             metadata={"skill": parsed.skill_name, "result_type": result.get("type", "unknown")},
             duration_ms=int((time.time() - t_skill) * 1000)
         ))
@@ -956,7 +956,7 @@ async def server_console_execute(
 
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="skill_dispatch", status="in_progress", model="", tier="",
-                message="Dispatching to skill: query",
+                message="正在调度知识库查询...",
                 metadata={"skill": "query", "routed_by": "pattern"}
             ))
             t_query = time.time()
@@ -976,7 +976,7 @@ async def server_console_execute(
             )
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="skill_execution", status="completed", model="", tier="",
-                message="Query skill completed",
+                message="知识库查询完成",
                 metadata={"skill": "query"},
                 duration_ms=int((time.time() - t_query) * 1000)
             ))
@@ -1000,7 +1000,7 @@ async def server_console_execute(
         if parsed.channel_name and not _has_question:
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="context_loading", status="in_progress", model="", tier="",
-                message="Loading context from #Channel..."
+                message="正在加载频道上下文...",
             ))
             t_ctx = time.time()
             context_result = await _load_context(
@@ -1010,7 +1010,7 @@ async def server_console_execute(
             if context_result["type"] == "context_loaded":
                 await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                     stage="context_loading", status="completed", model="", tier="",
-                    message="Context loaded successfully",
+                    message="上下文加载成功",
                     duration_ms=int((time.time() - t_ctx) * 1000)
                 ))
                 ws_manager.cleanup_operation(operation_id)
@@ -1041,7 +1041,7 @@ async def server_console_execute(
 
             await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
                 stage="intent_analysis", status="in_progress", model="fast-tier", tier="fast",
-                message="Analyzing intent..."
+                message="正在分析意图...",
             ))
             t_intent = time.time()
             intent_result = await analyze_intent(
@@ -1099,7 +1099,7 @@ async def server_console_execute(
     # Fallback: no specific routing matched
     await ws_manager.broadcast_ai_progress(current_user.id, operation_id, AiProgressStage(
         stage="fallback", status="fallback", model="", tier="",
-        message="Using fallback execution"
+        message="使用备用流程处理"
     ))
 
     smart_req = NoteCreateWithClassify(

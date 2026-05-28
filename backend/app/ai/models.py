@@ -50,9 +50,9 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     },
     "opencode-go": {
         "base_url": "https://opencode.ai/zen/go/v1",
-        "default_model": "deepseek-v4-pro",
+        "default_model": "qwen3.6-plus",
         "fast_model": "deepseek-v4-flash",
-        "strong_model": "deepseek-v4-pro",
+        "strong_model": "glm-5.1",
     },
     "moonshot": {
         "base_url": "https://api.moonshot.cn/v1",

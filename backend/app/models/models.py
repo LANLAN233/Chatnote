@@ -104,6 +104,7 @@ class Note(Base):
     thread: Mapped["Thread | None"] = relationship(back_populates="notes", foreign_keys=[thread_id])
     reply_to: Mapped["Note | None"] = relationship("Note", remote_side="Note.id", backref="replies")
     embedding_record: Mapped["NoteEmbedding | None"] = relationship("NoteEmbedding", back_populates="note", uselist=False, cascade="all, delete-orphan")
+    chunks: Mapped[list["NoteChunk"]] = relationship("NoteChunk", back_populates="note", cascade="all, delete-orphan")
 
 
 class Thread(Base):

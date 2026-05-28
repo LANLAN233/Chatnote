@@ -49,7 +49,7 @@ class SummarizeSkill(BaseSkill):
                     status="in_progress",
                     model=model_id,
                     tier="primary",
-                    message="Executing tool: summarize with WikipediaTools",
+                    message="正在调用 Wikipedia 搜索辅助总结...",
                 ),
             )
         result_data = await self._run_with_tools(prompt, context)
@@ -64,7 +64,7 @@ class SummarizeSkill(BaseSkill):
                         status="completed",
                         model=model_id,
                         tier="primary",
-                        message="Tool call completed",
+                        message="工具调用完成",
                         duration_ms=duration_ms,
                     ),
                 )
@@ -85,7 +85,7 @@ class SummarizeSkill(BaseSkill):
                     status="failed",
                     model=model_id,
                     tier="primary",
-                    message="Tool failed: WikipediaTools not supported by model",
+                    message="Wikipedia 工具不受支持，正在回退...",
                     metadata={"tool_name": "WikipediaTools", "error": "model_does_not_support_tools"},
                     duration_ms=duration_ms,
                 ),
@@ -103,7 +103,7 @@ class SummarizeSkill(BaseSkill):
                     status="in_progress",
                     model=model_id,
                     tier="fallback",
-                    message="Falling back to plain LLM...",
+                    message="正在用通用模型总结...",
                 ),
             )
         fallback_result = await self._run_plain(prompt, context)
@@ -117,7 +117,7 @@ class SummarizeSkill(BaseSkill):
                     status="completed",
                     model=model_id,
                     tier="fallback",
-                    message="Fallback response ready",
+                    message="备用总结完成",
                     duration_ms=fb_duration_ms,
                 ),
             )

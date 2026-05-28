@@ -341,7 +341,7 @@ async def execute_agent_query(
                 status="in_progress",
                 model=model_id,
                 tier="primary",
-                message="Executing tool: console agent with tools",
+                message=f"AI 正在搜索你的笔记知识库...",
             ),
         )
     agent = create_console_ai_agent(db, user_id, model)
@@ -364,7 +364,7 @@ async def execute_agent_query(
                             status="completed",
                             model=model_id,
                             tier="primary",
-                            message="Tool call completed",
+                            message="工具调用完成",
                             duration_ms=duration_ms,
                         ),
                     )
@@ -381,7 +381,7 @@ async def execute_agent_query(
                 status="failed",
                 model=model_id,
                 tier="primary",
-                message="Tool failed: tool-calling not supported by model",
+                message="工具调用不受模型支持，正在回退...",
                 metadata={"tool_name": "console_agent_with_tools", "error": "model_does_not_support_tools"},
                 duration_ms=duration_ms,
             ),
@@ -399,7 +399,7 @@ async def execute_agent_query(
                 status="in_progress",
                 model=model_id,
                 tier="fallback",
-                message="Falling back to plain LLM...",
+                message="正在使用通用 AI 模型处理...",
             ),
         )
     try:
@@ -422,7 +422,7 @@ async def execute_agent_query(
                     status="failed",
                     model=model_id,
                     tier="fallback",
-                    message=f"Fallback failed: {exc}",
+                    message=f"备用处理失败: {exc}",
                     metadata={"error": str(exc)},
                     duration_ms=fb_duration_ms,
                 ),
@@ -443,7 +443,7 @@ async def execute_agent_query(
                 status="completed",
                 model=model_id,
                 tier="fallback",
-                message="Fallback response ready",
+                message="备用处理完成",
                 duration_ms=fb_duration_ms,
             ),
         )

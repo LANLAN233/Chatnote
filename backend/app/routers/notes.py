@@ -7,15 +7,21 @@ from app.database import get_db
 from app.models.models import Channel, Note, Server, Thread, User
 from app.routers.auth import get_current_user
 from app.schemas.schemas import ApiResponse, NoteCreate, NoteListResponse, NoteResponse, NoteSearchResult, NoteUpdate, ThreadCreate, ThreadMessageCreate, ThreadResponse
-from app.services.embedding import EmbeddingService
+from app.services.embedding import EmbeddingService, chunk_and_embed
 from app.services.search import hybrid_search
 from app.services.websocket import manager as ws_manager
 
 router = APIRouter(tags=["notes"])
 
 
-async def _generate_note_embedding(note_id: int, content: str):
-    """Background task to generate embedding for a note."""
+async def _generate_note_embedding(note_id: int, content: str, force: bool = False):
+    """Background task to generate embedding and chunks for a note.
+
+    Args:
+        note_id: The note ID.
+        content: The note content text.
+        force: If True, invalidate cache and regenerate (for content updates).
+    """
     import logging
 
     from app.database import async_session
@@ -23,7 +29,10 @@ async def _generate_note_embedding(note_id: int, content: str):
     _logger = logging.getLogger(__name__)
     async with async_session() as db:
         try:
-            await EmbeddingService.get_or_create_embedding(note_id, content, db)
+            # Legacy: single-embedding for backward compatibility
+            await EmbeddingService.get_or_create_embedding(note_id, content, db, force=force)
+            # Chunk-level embeddings for high-precision retrieval
+            await chunk_and_embed(note_id, content, db)
             await db.commit()
         except Exception:
             await db.rollback()
@@ -171,9 +180,9 @@ async def update_note(
     # Broadcast via WebSocket
     await ws_manager.broadcast_note_updated(current_user.id, NoteResponse.model_validate(note).model_dump())
 
-    # Regenerate embedding if content changed
+    # Regenerate embedding if content changed (force rebuild to invalidate cache)
     if content_changed:
-        background_tasks.add_task(_generate_note_embedding, note.id, note.content)
+        background_tasks.add_task(_generate_note_embedding, note.id, note.content, force=True)
     
     return ApiResponse(success=True, data=NoteResponse.model_validate(note).model_dump(), message="Note updated")
 

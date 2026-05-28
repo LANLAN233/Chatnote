@@ -189,3 +189,63 @@ async def hybrid_search(
         })
     
     return results
+
+
+async def chunk_vector_search(
+    query: str,
+    user_id: int,
+    db: AsyncSession,
+    limit: int = 10,
+) -> list[dict]:
+    """Search by chunk-level vector similarity, returning parent note full content.
+
+    Unlike vector_search() which matches at the whole-note level, this searches
+    at the paragraph/chunk level for higher precision. Each result returns the
+    full parent note content (not just the matched chunk), following the
+    ParentDocumentRetriever pattern.
+
+    Args:
+        query: Natural language search query.
+        user_id: User ID to scope search.
+        db: Async database session.
+        limit: Maximum distinct notes to return.
+
+    Returns:
+        List of dicts with: note_id, content (full note), score, chunk_content.
+    """
+    query_embedding = await EmbeddingService.generate_embedding(query)
+    if query_embedding is None:
+        return []
+
+    await db.execute(text("SET LOCAL hnsw.ef_search = 100"))
+
+    embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+    sql = text("""
+        SELECT DISTINCT ON (n.id)
+            n.id AS note_id,
+            n.content AS full_content,
+            nc.content AS chunk_content,
+            1 - (nc.embedding <=> :query_vec) AS score
+        FROM note_chunks nc
+        JOIN notes n ON nc.note_id = n.id
+        WHERE n.user_id = :user_id
+        ORDER BY n.id, nc.embedding <=> :query_vec
+        LIMIT :limit
+    """)
+    result = await db.execute(sql, {
+        "query_vec": embedding_str,
+        "user_id": user_id,
+        "limit": limit * 2,
+    })
+
+    rows = result.fetchall()
+    return [
+        {
+            "note_id": row.note_id,
+            "content": row.full_content,
+            "chunk_content": row.chunk_content,
+            "score": float(row.score),
+        }
+        for row in rows
+    ]

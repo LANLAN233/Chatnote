@@ -76,7 +76,7 @@ class AskSkill(BaseSkill):
                     status="in_progress",
                     model=model_id,
                     tier="primary",
-                    message="Executing tool: ask agent with tools",
+                    message="正在调用 AI 工具和搜索...",
                 ),
             )
         result = await self._run_with_tools(enhanced_args, context)
@@ -91,7 +91,7 @@ class AskSkill(BaseSkill):
                         status="completed",
                         model=model_id,
                         tier="primary",
-                        message="Tool call completed",
+                        message="工具调用完成",
                         duration_ms=duration_ms,
                     ),
                 )
@@ -108,7 +108,7 @@ class AskSkill(BaseSkill):
                     status="failed",
                     model=model_id,
                     tier="primary",
-                    message="Tool failed: tool-calling not supported by model",
+                    message="工具不受模型支持，正在回退...",
                     metadata={"tool_name": "ask_agent_with_tools", "error": "model_does_not_support_tools"},
                     duration_ms=duration_ms,
                 ),
@@ -126,7 +126,7 @@ class AskSkill(BaseSkill):
                     status="in_progress",
                     model=model_id,
                     tier="fallback",
-                    message="Falling back to plain LLM...",
+                    message="正在用通用模型回答...",
                 ),
             )
         fallback_result = await self._run_plain(enhanced_args, context)
@@ -140,7 +140,7 @@ class AskSkill(BaseSkill):
                     status="completed",
                     model=model_id,
                     tier="fallback",
-                    message="Fallback response ready",
+                    message="备用回答完成",
                     duration_ms=fb_duration_ms,
                 ),
             )

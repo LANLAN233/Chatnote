@@ -68,7 +68,7 @@ class FakeUserApiKey:
         ("qwen", "qwen-turbo", "qwen-max"),
         ("openai", "gpt-4o-mini", "gpt-4o"),
         ("opencode-zen", "kimi-k2.6", "deepseek-v4"),
-        ("opencode-go", "kimi-k2.6", "deepseek-v4"),
+        ("opencode-go", "deepseek-v4-flash", "glm-5.1"),
     ],
 )
 async def test_get_model_by_tier_returns_expected_model_ids(

@@ -22,6 +22,7 @@ from app.ai.skills.base import BaseSkill, SkillContext, SkillResult
 from app.models.models import Channel, Server
 from app.schemas.ai_progress import AiProgressStage
 from app.services.note_service import fetch_notes_for_context
+from app.services.rerank import RerankerService
 
 logger = logging.getLogger(__name__)
 
@@ -79,19 +80,73 @@ class QuerySkill(BaseSkill):
                 raw_notes = raw_notes[:FETCH_LIMIT * 2]
 
         # -----------------------------------------------------------------
-        # 1b. Semantic search (parallel source via vector similarity)
+        # 1b. Semantic search (parallel source via chunk-level vector similarity)
+        #     Prefers chunk_vector_search for high-precision matching on long
+        #     notes; falls back to vector_search if no chunks exist.
         # -----------------------------------------------------------------
         semantic_notes: list[str] = []
         try:
-            from app.services.search import vector_search
-            semantic_results = await vector_search(question, context.user_id, db, limit=10)
-            semantic_notes = [r["content"] for r in semantic_results]
+            from app.services.search import chunk_vector_search, vector_search
+            # Try chunk-level search first (higher precision)
+            chunk_results = await chunk_vector_search(question, context.user_id, db, limit=10)
+            if chunk_results:
+                # chunk_vector_search returns full parent note content
+                semantic_notes = [r["content"] for r in chunk_results]
+            else:
+                # Fall back to legacy whole-note embedding search
+                semantic_results = await vector_search(question, context.user_id, db, limit=10)
+                semantic_notes = [r["content"] for r in semantic_results]
         except Exception:
             pass  # gracefully fall back to recent notes only
 
         # Merge: semantic notes first, then deduplicated recent notes
         if semantic_notes:
             raw_notes = semantic_notes + [n for n in raw_notes if n not in semantic_notes]
+
+        # -----------------------------------------------------------------
+        # 1c. Rerank candidates with Jina Cross-Encoder (narrow 40→15)
+        #     Gracefully falls back to original order if API unavailable.
+        # -----------------------------------------------------------------
+        if len(raw_notes) > MAX_SOURCE_NOTES:
+            t_rerank_start: float | None = None
+            if context.ws_manager and context.operation_id and context.user_id:
+                t_rerank_start = time.time()
+                await context.ws_manager.broadcast_ai_progress(
+                    context.user_id,
+                    context.operation_id,
+                    AiProgressStage(
+                        stage="rerank",
+                        status="in_progress",
+                        model="jina-reranker-v3",
+                        tier="fast",
+                        message="Reranking candidates...",
+                        metadata={"candidates": len(raw_notes)},
+                    ),
+                )
+
+            raw_notes = await RerankerService.rerank_documents(
+                question, raw_notes, top_n=15
+            )
+
+            if context.ws_manager and context.operation_id and context.user_id and t_rerank_start is not None:
+                await context.ws_manager.broadcast_ai_progress(
+                    context.user_id,
+                    context.operation_id,
+                    AiProgressStage(
+                        stage="rerank",
+                        status="completed",
+                        model="jina-reranker-v3",
+                        tier="fast",
+                        message=f"Reranked → {len(raw_notes)} notes",
+                        metadata={"reranked_count": len(raw_notes)},
+                        duration_ms=int((time.time() - t_rerank_start) * 1000),
+                    ),
+                )
+            logger.debug(
+                "Reranked %d candidates → %d for LLM retrieval",
+                len(raw_notes) if raw_notes else 0,
+                min(len(raw_notes) if raw_notes else 0, 15),
+            )
 
         if not raw_notes:
             scope = f"#{channel_name}" if channel_name else f"@{server_name}"
@@ -131,7 +186,7 @@ class QuerySkill(BaseSkill):
                     status="in_progress",
                     model="",
                     tier="fast",
-                    message="Searching notes...",
+                        message="正在检索相关笔记...",
                 ),
             )
 
@@ -171,7 +226,7 @@ class QuerySkill(BaseSkill):
                     status="in_progress",
                     model=getattr(strong_model, "id", ""),
                     tier="strong",
-                    message="Generating answer...",
+                        message="正在生成回答...",
                 ),
             )
 
@@ -189,7 +244,7 @@ class QuerySkill(BaseSkill):
                     status="completed",
                     model=getattr(strong_model, "id", ""),
                     tier="strong",
-                    message="Answer ready",
+                        message="回答已生成",
                     duration_ms=int((time.time() - t_answer_start) * 1000),
                 ),
             )

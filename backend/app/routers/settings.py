@@ -239,9 +239,21 @@ _PROVIDER_DISPLAY: dict[str, dict] = {
     "opencode-go": {
         "name": "OpenCode Go",
         "preset_models": [
-            "kimi-k2.6", "glm-5.1", "glm-5", "qwen3.6-plus", "qwen3.5-plus",
-            "deepseek-v4-pro", "deepseek-v4-flash",
-            "mimo-v2-pro", "mimo-v2-omni", "minimax-m2.7", "minimax-m2.5",
+            # Sorted by estimated monthly request count (cheapest first)
+            # From opencode.ai/docs/zh-cn/go/ — 2026-05-28
+            "deepseek-v4-flash",   # ~158K req/month — light
+            "mimo-v2.5",            # ~150K req/month — light
+            "qwen3.5-plus",         # ~50K req/month — economy
+            "minimax-m2.5",         # ~32K req/month — economy
+            "minimax-m2.7",         # ~17K req/month — balanced
+            "deepseek-v4-pro",      # ~17K req/month — balanced
+            "mimo-v2.5-pro",        # ~16K req/month — balanced
+            "qwen3.6-plus",         # ~16K req/month — balanced
+            "kimi-k2.5",            # ~9K req/month — premium
+            "kimi-k2.6",            # ~6K req/month — premium
+            "glm-5",                # ~6K req/month — premium
+            "qwen3.7-max",          # ~5K req/month — premium
+            "glm-5.1",              # ~4K req/month — strongest
         ],
     },
     "mock": {
