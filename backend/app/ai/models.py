@@ -398,12 +398,9 @@ def _resolve_model_id(
     config: dict,
     use_vision: bool,
 ) -> str:
-    # Vision requests always use the configured vision model,
-    # not the user's custom model (which may not support images)
+    # Vision requests always use the configured vision model
     if use_vision:
-        return config["vision_model"]
-    if api_key_record and api_key_record.model:
-        return api_key_record.model
+        return config.get("vision_model", config["default_model"])
     return config["default_model"]
 
 
@@ -412,9 +409,6 @@ def _resolve_tier_model_id(
     config: dict[str, Any],
     tier: str,
 ) -> str:
-    if api_key_record and api_key_record.model:
-        return api_key_record.model
-
     normalized_tier = tier.lower()
     if normalized_tier == "strong":
         return config.get("strong_model", config["default_model"])
