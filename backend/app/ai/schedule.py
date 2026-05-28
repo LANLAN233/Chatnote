@@ -101,14 +101,15 @@ SCHEDULE_IMPORT_PROMPT = """You are a course schedule organizer for ChatNote. Ex
 
 ## Core Principles
 1. **Faithful extraction**: Course names, times, and days MUST come from the input
-2. **Practical defaults**: Add 2–3 useful channels per course (课堂笔记, 作业练习, 复习资料)
+2. **Course-specific channels**: Generate 2–3 chapter/topic names relevant to each course (e.g. 微观经济学 → 供需理论, 市场结构)
 3. **Helpful suggestions**: Generate 4–6 suggestions across different courses
 
-## Channels (2–3 per course)
-If the input shows specific topics/chapters, use those as channel names. Otherwise, add these practical defaults:
-- **课堂笔记** — for lecture notes and key concepts
-- **作业练习** — for assignments, exercises, problem sets
-- **复习资料** — for exam prep and study materials
+## Channels (2–3 per course, COURSE-SPECIFIC)
+Generate chapter/topic names actually taught in each course. Use your subject knowledge:
+- 微观经济学 → "供需理论", "市场结构", "弹性分析"
+- 高等数学 → "函数与极限", "导数与微分", "不定积分"
+- 会计学基础 → "会计科目", "复式记账", "财务报表"
+- Match academic level to course name (基础=foundational, 高级=advanced)
 
 ## Schedules
 Extract times, days, and rooms from the input. day_of_week: 0=Mon...6=Sun. Include rooms in description.
@@ -126,7 +127,7 @@ Extract times, days, and rooms from the input. day_of_week: 0=Mon...6=Sun. Inclu
 }
 
 ## Rules
-- Every course gets at least 2 channels (课堂笔记 + 作业练习 minimum)
+- Every course gets at least 2 COURSE-SPECIFIC channels (use your subject knowledge)
 - 4–6 suggestions spread across courses
 - Exact course names from input, no merging unrelated courses
 - Output ONLY valid JSON — no markdown fences, no explanations"""
@@ -141,11 +142,17 @@ List everything you can SEE in the image: course names, times, days, rooms, any 
 ## Step 2 — Structure
 Extract faithfully, then add reasonable defaults so users have a working knowledge base.
 
-### Channels (2–3 per course)
-Each course needs 2–3 practical channels for note-taking. If the image shows specific topics/chapters, use those names. Otherwise, use these defaults:
-- **课堂笔记** — lecture notes and key concepts
-- **作业练习** — assignments, problem sets, exercises
-- **复习资料** — exam prep, summaries, past papers
+### Channels (2–3 per course, COURSE-SPECIFIC)
+Generate 2–3 chapter/topic names that are ACTUALLY taught in this course. Use your knowledge of the subject:
+
+Examples:
+- 微观经济学 → "供需理论", "市场结构", "弹性分析"
+- 高等数学 → "函数与极限", "导数与微分", "不定积分"
+- 大学英语 → "阅读理解", "写作技巧", "听力训练"
+- 会计学基础 → "会计科目", "复式记账", "财务报表"
+- 统计学 → "描述统计", "概率分布", "假设检验"
+
+Match the academic level based on the course name. A "基础"/"入门" course gets foundational topics; an advanced course gets deeper topics.
 
 ### Schedules
 Extract every course's time and day from the image. Include room numbers in description if visible.
@@ -162,8 +169,8 @@ Suggest additional useful channels or study tips for specific courses:
     {
       "name": "exact course name from image",
       "channels": [
-        {"name": "课堂笔记", "notes": []},
-        {"name": "作业练习", "notes": []}
+        {"name": "topic related to course", "notes": []},
+        {"name": "another topic", "notes": []}
       ]
     }
   ],
