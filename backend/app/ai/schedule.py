@@ -191,12 +191,10 @@ Organize your observations into this JSON format. Leave empty arrays for section
     {
       "name": "exact course name from image (2-20 chars)",
       "channels": [
-        {
-          "name": "topic name ONLY IF explicitly listed in image under this course",
-          "notes": [{"content": "brief note ONLY IF image contains detail text for this topic"}]
-        }
+        {"name": "课程笔记", "notes": []}
       ]
     }
+  ],
   ],
   "schedules": [
     {
@@ -216,17 +214,19 @@ Organize your observations into this JSON format. Leave empty arrays for section
     {
       "type": "channel|schedule|study_tip",
       "target_server": "Server Name",
-      "message": "only if you have a GENUINELY useful suggestion based on what you see"
+      "message": "actionable suggestion (see rules below)"
     }
   ]
 }
 
 ## Critical Rules
-- **DO NOT invent** channels, topics, or notes that are not visible in the image. If a course has no sub-topics listed, channels should be empty [].
-- **DO NOT guess** course groupings. If "理论力学" and "材料力学" appear as separate courses, keep them separate — only group them if the image explicitly groups them (e.g., under a "力学" header).
-- **DO NOT add** placeholder notes like "研究物体机械运动的基本规律". Only include note content if the image contains actual descriptive text for that topic.
-- If the image is a simple timetable with just course names + times, that's fine — servers will have empty channels, and that's correct.
+- **One channel minimum per course**: If a course has NO visible sub-topics in the image, create exactly ONE channel named "课程笔记" with NO notes. This ensures users can select the course in the import UI.
+- If the image DOES show sub-topics/chapters under a course, list them as separate channels using their actual names.
+- **DO NOT invent** channel names or notes. The "课程笔记" default is the ONLY allowed fabrication.
+- **DO NOT guess** course groupings. Keep each course as its own server.
+- **DO NOT add** placeholder notes. Leave notes empty unless the image has real descriptive text.
 - Output ONLY valid JSON. No markdown fences. No explanations."""
+
 
 
 
