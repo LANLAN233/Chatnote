@@ -419,6 +419,10 @@ async def parse_schedule_import(
     
     Tries local regex first for text-only input (instant); falls back to AI agent
     if local parse fails or for image input.
+    
+    For image input: tries structured-output agent first. If that returns empty
+    (common when the vision model doesn't support JSON schema), falls back to a
+    raw prompting approach that asks the model to output JSON directly.
     """
     # ── Local parse for text-only input ──────────────────────────────
     if text and not image_url:
@@ -449,15 +453,12 @@ async def parse_schedule_import(
                 return local
         return {"servers": [], "schedules": [], "suggestions": []}
 
-    # ── AI agent for complex text or image input ────────────────────
-    agent = create_schedule_import_agent(model)
-
+    # ── Build input content ──────────────────────────────────────────
     input_content: str | list[dict] = ""
     if image_url:
         content_items: list[dict] = []
         if text:
             content_items.append({"type": "text", "text": text})
-        # Convert local image URLs to base64 data URLs so the remote LLM can access them
         resolved_image_url = _resolve_image_url(image_url)
         logger.info("Schedule import: image_url=%s... resolved to %s...", 
                      str(image_url)[:80], str(resolved_image_url)[:80])
@@ -473,67 +474,26 @@ async def parse_schedule_import(
                 type(input_content).__name__, 
                 len(str(input_content)) if isinstance(input_content, str) else len(str(input_content)))
 
-    try:
-        response = await asyncio.wait_for(
-            agent.arun(input=input_content),
-            timeout=90.0,
+    # ── Attempt 1: Structured-output agent ───────────────────────────
+    parsed = await _run_structured_agent(model, input_content)
+
+    # ── Attempt 2: Raw prompt fallback (no structured outputs) ──────
+    if not _has_meaningful_data(parsed) and image_url:
+        logger.info(
+            "Schedule import: structured-output returned empty, "
+            "falling back to raw prompt for vision model"
         )
-        result = response.content
-        logger.info("Schedule import: agent response type=%s", type(result).__name__)
-        if isinstance(result, ScheduleImportResult):
-            parsed = result.model_dump()
-            logger.info("Schedule import: parsed as ScheduleImportResult, servers=%d schedules=%d",
-                       len(parsed.get('servers',[])), len(parsed.get('schedules',[])))
-        elif isinstance(result, dict):
-            parsed = result
-            logger.info("Schedule import: parsed as dict, keys=%s", list(parsed.keys())[:5])
-        else:
-            # Agent returned a string (often an error message) - treat as empty
-            logger.warning("Schedule import: agent returned string/error: %s", str(result)[:200])
-            parsed = {"servers": [], "schedules": [], "suggestions": []}
+        raw_parsed = await _run_raw_prompt_fallback(model, input_content)
+        if _has_meaningful_data(raw_parsed):
+            return raw_parsed
 
-        # If AI returned empty results or error, try local parse as fallback
-        if not _has_meaningful_data(parsed):
-            logger.info("Schedule import AI returned empty/error, trying local parse")
-            if text:
-                local = _try_local_parse_schedule_import(text)
-                if local and _has_meaningful_data(local):
-                    return local
-            # For image-only or AI-failed imports, return a helpful message
-            if image_url and not text:
-                return {
-                    "servers": [],
-                    "schedules": [],
-                    "suggestions": [
-                        {
-                            "type": "error",
-                            "target_server": None,
-                            "message": "图片识别需要支持视觉的 AI 模型。请尝试同时提供文字描述（如课程名称、时间），或使用支持图片识别的模型。",
-                        }
-                    ],
-                }
-            # If text provided but AI failed and local parse also failed, show suggestion
-            if text:
-                return {
-                    "servers": [],
-                    "schedules": [],
-                    "suggestions": [
-                        {
-                            "type": "error",
-                            "target_server": None,
-                            "message": "AI 解析失败。请尝试使用更标准的格式，例如：\n课程名 周一 8:00-9:35\n第一章 内容",
-                        }
-                    ],
-                }
-
-        return parsed
-    except Exception as e:
-        logger.warning("Schedule import via Agent failed: %s, trying local parse", e)
+    # ── Post-processing ──────────────────────────────────────────────
+    if not _has_meaningful_data(parsed):
+        logger.info("Schedule import AI returned empty/error, trying local parse")
         if text:
             local = _try_local_parse_schedule_import(text)
             if local and _has_meaningful_data(local):
                 return local
-        # For image-only imports that failed, return a helpful message
         if image_url and not text:
             return {
                 "servers": [],
@@ -542,46 +502,175 @@ async def parse_schedule_import(
                     {
                         "type": "error",
                         "target_server": None,
-                        "message": "图片识别需要支持视觉的 AI 模型。请尝试同时提供文字描述（如课程名称、时间），或使用支持图片识别的模型。",
+                        "message": "图片识别失败。请尝试同时提供文字描述（如课程名称、时间），或使用支持图片识别的模型。",
                     }
                 ],
             }
+        if text:
+            return {
+                "servers": [],
+                "schedules": [],
+                "suggestions": [
+                    {
+                        "type": "error",
+                        "target_server": None,
+                        "message": "AI 解析失败。请尝试使用更标准的格式，例如：\n课程名 周一 8:00-9:35\n第一章 内容",
+                    }
+                ],
+            }
+
+    return parsed
+
+
+async def _run_structured_agent(
+    model: OpenAIChat,
+    input_content: str | list[dict],
+) -> dict[str, Any]:
+    """Run the structured-output agent. Returns empty dict on failure."""
+    agent = create_schedule_import_agent(model)
+    try:
+        response = await asyncio.wait_for(
+            agent.arun(input=input_content),
+            timeout=90.0,
+        )
+        result = response.content
+        logger.info("Schedule import: structured agent response type=%s", type(result).__name__)
+        if isinstance(result, ScheduleImportResult):
+            parsed = result.model_dump()
+            logger.info("Schedule import: parsed as ScheduleImportResult, servers=%d schedules=%d",
+                       len(parsed.get('servers', [])), len(parsed.get('schedules', [])))
+        elif isinstance(result, dict):
+            parsed = result
+            logger.info("Schedule import: parsed as dict, keys=%s", list(parsed.keys())[:5])
+        else:
+            logger.warning("Schedule import: agent returned string/error: %s", str(result)[:200])
+            parsed = {"servers": [], "schedules": [], "suggestions": []}
+        return parsed
+    except Exception as e:
+        logger.warning("Schedule import structured agent failed: %s", e)
+        return {"servers": [], "schedules": [], "suggestions": []}
+
+
+async def _run_raw_prompt_fallback(
+    model: OpenAIChat,
+    input_content: list[dict],
+) -> dict[str, Any]:
+    """Fallback: raw prompt without structured outputs.
+
+    Some vision models (Kimi, older GPT-4V, etc.) don't support Agno's
+    JSON schema structured_outputs. This fallback sends the same prompt
+    but asks the model to output raw JSON, then parses it manually.
+    """
+    raw_prompt = (
+        KIMI_VISION_PROMPT
+        + "\n\nIMPORTANT: Output ONLY raw JSON, no markdown fences, no extra text."
+    )
+
+    try:
+        from agno.agent import Agent
+        # Create agent WITHOUT structured_outputs (plain text)
+        raw_agent = Agent(
+            model=model,
+            name="Schedule Import Raw",
+            description="Parse schedule image into JSON (raw output)",
+            system_message_role="system",
+            instructions=raw_prompt,
+            # No output_schema, no structured_outputs
+        )
+        response = await asyncio.wait_for(
+            raw_agent.arun(input=input_content),
+            timeout=120.0,
+        )
+        raw_content = response.content if hasattr(response, "content") else str(response)
+        if not raw_content:
+            logger.warning("Schedule import raw fallback: empty response")
+            return {"servers": [], "schedules": [], "suggestions": []}
+
+        # Parse JSON from raw output (may contain markdown fences)
+        import re
+        clean = raw_content.strip()
+        # Strip markdown code fences if present
+        match = re.search(r'```(?:json)?\s*(\{.*\})\s*```', clean, re.DOTALL)
+        if match:
+            clean = match.group(1)
+        else:
+            # Try to extract first JSON object
+            match = re.search(r'\{.*\}', clean, re.DOTALL)
+            if match:
+                clean = match.group()
+
+        parsed = json.loads(clean)
+        logger.info(
+            "Schedule import raw fallback: parsed servers=%d schedules=%d",
+            len(parsed.get("servers", [])),
+            len(parsed.get("schedules", [])),
+        )
+        return parsed
+    except json.JSONDecodeError as e:
+        logger.warning("Schedule import raw fallback: JSON parse failed: %s", e)
+        return {"servers": [], "schedules": [], "suggestions": []}
+    except Exception as e:
+        logger.warning("Schedule import raw fallback failed: %s", e)
         return {"servers": [], "schedules": [], "suggestions": []}
 
 
 def _resolve_image_url(image_url: str) -> str:
     """Convert local image URLs to base64 data URLs for remote LLM access.
-    
-    If the URL points to a local file (relative path or localhost), read the
-    file and convert to a base64 data URL. Otherwise return as-is for remote URLs.
+
+    Strategy (ordered):
+    1. Already a data: URL or remote https:// URL → pass through as-is
+    2. Local file URL → read file, base64-encode, return data: URL
+    3. File not found at any strategy → log warning, return original URL as last resort
     """
-    # Already a data URL or remote URL
-    if image_url.startswith("data:") or image_url.startswith("https://"):
+    # Already a data URL
+    if image_url.startswith("data:"):
         return image_url
-    
-    # Remove http://localhost:8000 prefix if present
-    local_path = image_url
-    if image_url.startswith("http://localhost"):
-        # Extract path after port
+
+    # Remote URL (not localhost) — pass through; the remote LLM can fetch it
+    if image_url.startswith("https://") or image_url.startswith("http://"):
         from urllib.parse import urlparse
         parsed = urlparse(image_url)
+        if parsed.hostname not in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+            logger.info("Remote image URL, passing through: %s", image_url[:80])
+            return image_url
+        # localhost URL — extract path
         local_path = parsed.path
-    
-    # If it starts with /uploads/, resolve relative to UPLOAD_DIR
+    else:
+        local_path = image_url
+
+    # Normalize: strip leading "/uploads/" if present
     if local_path.startswith("/uploads/"):
         local_path = local_path[len("/uploads/"):]
-    
-    # Try to find the actual file
-    upload_dir = Path(settings.UPLOAD_DIR)
-    file_path = upload_dir / local_path
-    if not file_path.exists():
-        # Try without stripping prefix
-        file_path = Path(local_path.lstrip("/"))
-    
-    if not file_path.exists():
-        logger.warning("Image file not found for URL: %s", image_url)
-        return image_url  # Return original, let LLM handle it
-    
+
+    # Build absolute upload directory path
+    upload_dir = Path(settings.UPLOAD_DIR).resolve()
+
+    # Try multiple resolution strategies
+    candidates: list[Path] = []
+    # Strategy 1: {UPLOAD_DIR}/temp/{user_id}/{filename}
+    candidates.append(upload_dir / local_path)
+    # Strategy 2: {UPLOAD_DIR}/{filename} (strip any leading dirs)
+    candidates.append(upload_dir / Path(local_path).name)
+    # Strategy 3: Relative from CWD
+    candidates.append(Path(local_path).resolve())
+    # Strategy 4: Relative from CWD without leading /
+    candidates.append(Path(local_path.lstrip("/")).resolve())
+
+    file_path: Path | None = None
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            file_path = candidate
+            break
+
+    if file_path is None:
+        logger.warning(
+            "Image file not found. URL=%s, upload_dir=%s, tried: %s",
+            image_url, upload_dir,
+            [str(c) for c in candidates],
+        )
+        # Last resort: return original URL so the LLM can try to fetch it
+        return image_url
+
     # Determine MIME type from extension
     ext = file_path.suffix.lower()
     mime_map = {
@@ -592,11 +681,14 @@ def _resolve_image_url(image_url: str) -> str:
         ".webp": "image/webp",
     }
     mime_type = mime_map.get(ext, "image/png")
-    
+
     try:
-        with open(file_path, "rb") as f:
-            image_data = base64.b64encode(f.read()).decode("utf-8")
-        logger.info("Converted local image to base64: %s (%d chars)", file_path.name, len(image_data))
+        content = file_path.read_bytes()
+        image_data = base64.b64encode(content).decode("utf-8")
+        logger.info(
+            "Converted local image to base64: %s (%d bytes → %d chars data URL)",
+            file_path.name, len(content), len(image_data),
+        )
         return f"data:{mime_type};base64,{image_data}"
     except Exception as e:
         logger.warning("Failed to read image file %s: %s", file_path, e)
