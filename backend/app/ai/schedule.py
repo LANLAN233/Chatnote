@@ -213,10 +213,19 @@ Organize your observations into this JSON format. Leave empty arrays for section
   "suggestions": [
     {
       "type": "channel|schedule|study_tip",
-      "target_server": "Server Name",
-      "message": "actionable suggestion (see rules below)"
+      "target_server": "Server Name (must match a server above)",
+      "message": "Actionable suggestion in Chinese, e.g. '建议添加 #习题集 频道收集课后练习'"
     }
   ]
+}
+
+## Suggestions Guidelines
+- Generate AT LEAST 2-3 suggestions covering different courses
+- Types: "channel" (missing resource), "schedule" (time conflict or optimization), "study_tip" (learning advice)
+- Suggestions must reference specific courses by name (target_server)
+- Be specific and actionable, not generic. Good: "建议添加 #习题集 频道收集课后练习" Bad: "建议多学习"
+- Note scheduling patterns: if a course appears multiple times per week, suggest a review strategy
+- For course-only timetables, suggest practical channels like "课堂笔记", "作业", "复习资料"
 }
 
 ## Critical Rules
