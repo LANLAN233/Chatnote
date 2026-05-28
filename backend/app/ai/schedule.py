@@ -97,144 +97,104 @@ Today's date: {today_str}, weekday: {weekday_str} (0=Monday, 6=Sunday)
 - "下周三全天开会" → title="会议", date=next_Wednesday, is_all_day=true
 - "每天早上8点背单词" → title="背单词", repeat_rule={{"type":"daily"}}, start_time=08:00"""
 
-SCHEDULE_IMPORT_PROMPT = """You are an OCR and data extraction specialist for ChatNote.
+SCHEDULE_IMPORT_PROMPT = """You are a course schedule organizer for ChatNote. Extract course data from text or images and structure it into a usable knowledge base.
 
-Your task: faithfully transcribe and structure course schedules from text or images. 
-**Only extract what is explicitly present. Do not invent, embellish, or add content.**
+## Core Principles
+1. **Faithful extraction**: Course names, times, and days MUST come from the input
+2. **Practical defaults**: Add 2–3 useful channels per course (课堂笔记, 作业练习, 复习资料)
+3. **Helpful suggestions**: Generate 4–6 suggestions across different courses
 
-## Extraction Rules
+## Channels (2–3 per course)
+If the input shows specific topics/chapters, use those as channel names. Otherwise, add these practical defaults:
+- **课堂笔记** — for lecture notes and key concepts
+- **作业练习** — for assignments, exercises, problem sets
+- **复习资料** — for exam prep and study materials
 
-### 1. Course/Subject Identification
-- Identify ONLY courses/subjects that are explicitly named in the input
-- Use the exact names as they appear (if Chinese, keep Chinese; if English, keep English)
-- **DO NOT group** separate courses together unless the input explicitly groups them (e.g., under a common header). If "理论力学" and "材料力学" are listed separately, treat them as separate servers — do NOT force them under "力学"
-- If a course has sub-topics/chapters VISIBLE in the input, list them as channels. If no sub-topics are visible, leave channels as an empty array []
+## Schedules
+Extract times, days, and rooms from the input. day_of_week: 0=Mon...6=Sun. Include rooms in description.
 
-### 2. Notes Content
-- Each channel can have notes. **ONLY include notes if the input contains actual descriptive text** for that topic
-- **DO NOT generate** placeholder notes like "研究物体机械运动的基本规律" — these are fabrications
-- If no descriptive text exists, notes should be an empty array
+## Suggestions (4–6 minimum, covering most courses)
+- **channel** type: "建议添加 #真题库 频道收集历年试题"
+- **schedule** type: "注意周三课程密集，建议中间安排休息"
+- **study_tip** type: "该课程一周两次，建议课后当天整理笔记"
 
-### 3. Schedule Extraction
-- Extract ONLY times, days, locations that are VISIBLE in the input
-- day_of_week: 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
-- If a day is not specified, set day_of_week to null
-- Include room numbers, building names in the description field
-- repeat_rule: use {"type": "weekly"} if it appears to recur weekly, otherwise null
-- Every schedule MUST have a server_name that matches one of the servers[*].name values
-
-### 4. Suggestions (optional)
-- Only add suggestions if you have genuinely useful observations
-- Types: "channel" (missing resource), "schedule" (conflict), "study_tip" (advice)
-- Leave suggestions as empty [] if nothing stands out
-
-## Output JSON Format
+## Output JSON
 {
-    "servers": [
-        {
-            "name": "exact course name from input",
-            "channels": [
-                {
-                    "name": "topic name (ONLY if visible)",
-                    "notes": [{"content": "detail text (ONLY if visible)"}]
-                }
-            ]
-        }
-    ],
-    "schedules": [
-        {
-            "title": "course name matching a server",
-            "description": "room/building if visible, else null",
-            "start_time": "HH:MM",
-            "end_time": "HH:MM",
-            "date": "YYYY-MM-DD or null",
-            "day_of_week": 0-6 or null,
-            "repeat_rule": {"type": "weekly"} or null,
-            "is_all_day": false,
-            "confidence": 0.0-1.0,
-            "server_name": "must match a server name"
-        }
-    ],
-    "suggestions": [
-        {
-            "type": "channel|schedule|study_tip",
-            "target_server": "Server Name",
-            "message": "specific suggestion"
-        }
-    ]
+    "servers": [{"name": "CourseName", "channels": [{"name": "课堂笔记", "notes": []}, {"name": "作业练习", "notes": []}]}],
+    "schedules": [{"title": "CourseName", "start_time": "HH:MM", "end_time": "HH:MM", "date": null, "day_of_week": 0, "repeat_rule": {"type": "weekly"}, "is_all_day": false, "server_name": "CourseName", "description": "room info", "confidence": 0.9}],
+    "suggestions": [{"type": "channel", "target_server": "CourseName", "message": "建议添加 #真题库 频道"}]
 }
 
-## CRITICAL Rules
-- **FAITHFUL EXTRACTION ONLY**: Every piece of data must be traceable to something visible in the input
-- **EMPTY IS CORRECT**: If a course has no visible sub-topics, channels: [] is the RIGHT answer
-- **NO FABRICATION**: Do not generate overview notes, descriptions, or channel names that aren't in the source material
-- **KEEP NAMES AS-IS**: Don't abbreviate or translate course names unless the input uses multiple forms
+## Rules
+- Every course gets at least 2 channels (课堂笔记 + 作业练习 minimum)
+- 4–6 suggestions spread across courses
+- Exact course names from input, no merging unrelated courses
 - Output ONLY valid JSON — no markdown fences, no explanations"""
 
 # Vision-optimized prompt for Kimi k2.5 — emphasizes faithful extraction over creative structuring.
 # Shorter than SCHEDULE_IMPORT_PROMPT to avoid image processing timeout with large images.
 KIMI_VISION_PROMPT = """You are an OCR and data extraction specialist. Your task is to faithfully transcribe and structure ONLY what is actually visible in the provided image. Do NOT invent, guess, or add content that is not clearly present in the image.
 
-## Step 1 — Observe & Transcribe
-Before structuring anything, mentally list everything you can SEE in the image:
-- What courses/subjects are explicitly named?
-- What times/days are written?
-- What locations/rooms are mentioned?
-- What weeks/dates are specified?
-- What other text labels appear?
+## Step 1 — Observe
+List everything you can SEE in the image: course names, times, days, rooms, any text.
 
-## Step 2 — Structure (only what you observed)
-Organize your observations into this JSON format. Leave empty arrays for sections where you found nothing.
+## Step 2 — Structure
+Extract faithfully, then add reasonable defaults so users have a working knowledge base.
 
+### Channels (2–3 per course)
+Each course needs 2–3 practical channels for note-taking. If the image shows specific topics/chapters, use those names. Otherwise, use these defaults:
+- **课堂笔记** — lecture notes and key concepts
+- **作业练习** — assignments, problem sets, exercises
+- **复习资料** — exam prep, summaries, past papers
+
+### Schedules
+Extract every course's time and day from the image. Include room numbers in description if visible.
+
+### Suggestions (at least 4–6, covering most courses)
+Suggest additional useful channels or study tips for specific courses:
+- **channel** type: "建议添加 #真题库 频道收集历年试题"
+- **schedule** type: "注意周三课程密集，建议中间安排休息"
+- **study_tip** type: "该课程一周两次，建议课后当天整理笔记"
+
+## Output JSON Format
 {
   "servers": [
     {
-      "name": "exact course name from image (2-20 chars)",
+      "name": "exact course name from image",
       "channels": [
-        {"name": "课程笔记", "notes": []}
+        {"name": "课堂笔记", "notes": []},
+        {"name": "作业练习", "notes": []}
       ]
     }
   ],
-  ],
   "schedules": [
     {
-      "title": "course name matching a server",
-      "start_time": "HH:MM — only if visible",
-      "end_time": "HH:MM — only if visible",
-      "date": "YYYY-MM-DD — only if explicitly stated, else null",
-      "day_of_week": "0-6 — only if day is shown (0=Mon...6=Sun), else null",
-      "repeat_rule": {"type": "weekly"} or null,
+      "title": "course name (must match a server)",
+      "start_time": "HH:MM",
+      "end_time": "HH:MM",
+      "date": null,
+      "day_of_week": "0=Mon...6=Sun (from image)",
+      "repeat_rule": {"type": "weekly"},
       "is_all_day": false,
-      "server_name": "must match a server name above",
-      "description": "room number, building, or any visible detail text",
+      "server_name": "must match a server name exactly",
+      "description": "room or section info if visible",
       "confidence": 0.9
     }
   ],
   "suggestions": [
-    {
-      "type": "channel|schedule|study_tip",
-      "target_server": "Server Name (must match a server above)",
-      "message": "Actionable suggestion in Chinese, e.g. '建议添加 #习题集 频道收集课后练习'"
-    }
+    {"type": "channel", "target_server": "CourseName", "message": "建议添加 #习题集 频道"},
+    {"type": "channel", "target_server": "CourseName", "message": "建议添加 #复习资料 频道"},
+    {"type": "study_tip", "target_server": "CourseName", "message": "该课程一周两次，建议课后整理笔记"},
+    {"type": "schedule", "target_server": "CourseName", "message": "周一课程较满，注意时间管理"}
   ]
 }
 
-## Suggestions Guidelines
-- Generate AT LEAST 2-3 suggestions covering different courses
-- Types: "channel" (missing resource), "schedule" (time conflict or optimization), "study_tip" (learning advice)
-- Suggestions must reference specific courses by name (target_server)
-- Be specific and actionable, not generic. Good: "建议添加 #习题集 频道收集课后练习" Bad: "建议多学习"
-- Note scheduling patterns: if a course appears multiple times per week, suggest a review strategy
-- For course-only timetables, suggest practical channels like "课堂笔记", "作业", "复习资料"
-}
-
-## Critical Rules
-- **One channel minimum per course**: If a course has NO visible sub-topics in the image, create exactly ONE channel named "课程笔记" with NO notes. This ensures users can select the course in the import UI.
-- If the image DOES show sub-topics/chapters under a course, list them as separate channels using their actual names.
-- **DO NOT invent** channel names or notes. The "课程笔记" default is the ONLY allowed fabrication.
-- **DO NOT guess** course groupings. Keep each course as its own server.
-- **DO NOT add** placeholder notes. Leave notes empty unless the image has real descriptive text.
-- Output ONLY valid JSON. No markdown fences. No explanations."""
+## Rules
+- Give EVERY course at least 2 channels (课堂笔记 + 作业练习 minimum)
+- Generate 4–6 suggestions spread across different courses
+- Course names: use EXACT names from the image, don't abbreviate or translate
+- Keep each course as its own server — don't merge unrelated courses
+- Output ONLY valid JSON — no markdown fences, no explanations"""
 
 
 
