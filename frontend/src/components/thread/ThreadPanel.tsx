@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { X, Pencil, Check, SendHorizontal, MessageSquare } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useThreadStore } from "../../stores";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import type { Note } from "../../types";
 
 export default function ThreadPanel() {
@@ -16,6 +17,8 @@ export default function ThreadPanel() {
     clearCurrentThreadId,
     setCurrentThreadId,
   } = useThreadStore();
+
+  const isMobile = useIsMobile();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -143,8 +146,18 @@ export default function ThreadPanel() {
 
       {/* Panel */}
       <div
-        className={`fixed right-0 top-0 h-full w-80 bg-[#2b2d31] border-l border-[#1e1f22] flex flex-col z-40 transform transition-transform duration-300 ease-in-out ${
-          isOpen ? "translate-x-0" : "translate-x-full"
+        className={`${
+          isMobile
+            ? "fixed inset-0 w-full h-full"
+            : "fixed right-0 top-0 h-full w-80"
+        } bg-[#2b2d31] border-l border-[#1e1f22] flex flex-col z-40 transform transition-transform duration-300 ease-in-out ${
+          isOpen
+            ? isMobile
+              ? "translate-y-0"
+              : "translate-x-0"
+            : isMobile
+              ? "translate-y-full"
+              : "translate-x-full"
         }`}
         data-testid="thread-panel"
       >
@@ -193,11 +206,13 @@ export default function ThreadPanel() {
           )}
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-white"
+            className={`text-gray-400 hover:text-white ${
+              isMobile ? "w-11 h-11 flex items-center justify-center" : ""
+            }`}
             title="Close panel"
             data-testid="thread-close"
           >
-            <X size={18} />
+            <X size={isMobile ? 24 : 18} />
           </button>
         </header>
 
