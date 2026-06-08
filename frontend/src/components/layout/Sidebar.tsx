@@ -5,7 +5,11 @@ import { useServerStore, useAuthStore } from "../../stores";
 import ServerModal from "../servers/ServerModal";
 import SettingsModal from "../settings/SettingsModal";
 
-export default function Sidebar() {
+interface SidebarProps {
+  isMobile?: boolean;
+}
+
+export default function Sidebar({ isMobile = false }: SidebarProps) {
   const { servers, currentServerId, setCurrentServer, deleteServer } = useServerStore();
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
@@ -31,6 +35,83 @@ export default function Sidebar() {
     setContextMenu({ id: serverId, x: e.clientX, y: e.clientY });
   };
 
+  // Mobile bottom navigation
+  if (isMobile) {
+    return (
+      <>
+        <div className="fixed bottom-0 left-0 right-0 h-16 bg-[#1e1f22] z-50 flex items-center justify-around px-2 select-none">
+          {/* Home */}
+          <button
+            onClick={() => navigate("/")}
+            className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200 ${
+              isHomeActive
+                ? "bg-[#5865F2] text-white"
+                : "text-[#949ba4] hover:text-[#dbdee1]"
+            }`}
+            aria-label="Home"
+          >
+            <Home className="w-6 h-6" />
+          </button>
+
+          {/* Console */}
+          <button
+            onClick={() => navigate("/?tab=console")}
+            className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200 ${
+              currentPath === "/" && searchParams.get("tab") === "console"
+                ? "bg-[#5865F2] text-white"
+                : "text-[#949ba4] hover:text-[#dbdee1]"
+            }`}
+            aria-label="Console"
+          >
+            <Terminal className="w-6 h-6" />
+          </button>
+
+          {/* Calendar */}
+          <button
+            onClick={() => navigate("/calendar")}
+            className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200 ${
+              /^\/calendar/.test(currentPath)
+                ? "bg-[#5865F2] text-white"
+                : "text-[#949ba4] hover:text-[#dbdee1]"
+            }`}
+            aria-label="Calendar"
+          >
+            <Calendar className="w-6 h-6" />
+          </button>
+
+          {/* Plugins */}
+          <button
+            onClick={() => navigate("/plugins")}
+            className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200 ${
+              /^\/plugins/.test(currentPath)
+                ? "bg-[#5865F2] text-white"
+                : "text-[#949ba4] hover:text-[#dbdee1]"
+            }`}
+            aria-label="Plugins"
+          >
+            <Puzzle className="w-6 h-6" />
+          </button>
+
+          {/* Settings */}
+          <button
+            onClick={() => setShowSettings(true)}
+            className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200 ${
+              showSettings
+                ? "bg-[#5865F2] text-white"
+                : "text-[#949ba4] hover:text-[#dbdee1]"
+            }`}
+            aria-label="Settings"
+          >
+            <Settings className="w-6 h-6" />
+          </button>
+        </div>
+
+        <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+      </>
+    );
+  }
+
+  // Desktop sidebar
   return (
     <div className="w-[72px] bg-[#1e1f22] flex flex-col items-center py-3 gap-2 flex-shrink-0 select-none">
       {/* Home button */}

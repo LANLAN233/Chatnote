@@ -4,6 +4,8 @@ interface HomeSidebarProps {
   activeTab: "overview" | "console" | "import" | "inbox" | "recent" | "daily-summary";
   onTabChange: (tab: "overview" | "console" | "import" | "inbox" | "recent" | "daily-summary") => void;
   inboxBadge?: number;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 const tabs = [
@@ -15,9 +17,18 @@ const tabs = [
   { id: "import" as const, label: "日程表导入", Icon: Upload },
 ];
 
-export default function HomeSidebar({ activeTab, onTabChange, inboxBadge = 0 }: HomeSidebarProps) {
-  return (
-    <div className="w-60 bg-[#2b2d31] flex flex-col h-full flex-shrink-0 select-none">
+export default function HomeSidebar({ activeTab, onTabChange, inboxBadge = 0, isOpen, onClose }: HomeSidebarProps) {
+  const isDrawerMode = isOpen !== undefined;
+
+  const handleTabClick = (tab: "overview" | "console" | "import" | "inbox" | "recent" | "daily-summary") => {
+    onTabChange(tab);
+    if (isDrawerMode && onClose) {
+      onClose();
+    }
+  };
+
+  const sidebarContent = (
+    <>
       {/* Header */}
       <div className="h-12 border-b border-[#1e1f22] px-4 flex items-center shadow-sm">
         <h1 className="font-bold text-white text-[15px] truncate">首页</h1>
@@ -31,7 +42,7 @@ export default function HomeSidebar({ activeTab, onTabChange, inboxBadge = 0 }: 
             return (
               <button
                 key={tab.id}
-                onClick={() => onTabChange(tab.id)}
+                onClick={() => handleTabClick(tab.id)}
                 className={`w-full text-left px-2 py-[6px] rounded flex items-center gap-2 group transition-colors
                   ${isActive
                     ? "bg-[#3f4147] text-white"
@@ -55,6 +66,35 @@ export default function HomeSidebar({ activeTab, onTabChange, inboxBadge = 0 }: 
           })}
         </div>
       </div>
+    </>
+  );
+
+  if (isDrawerMode) {
+    return (
+      <>
+        {/* Backdrop overlay */}
+        {isOpen && (
+          <div
+            className="fixed inset-0 bg-black/30 z-30 transition-opacity duration-300"
+            onClick={onClose}
+          />
+        )}
+
+        {/* Drawer panel */}
+        <div
+          className={`fixed left-0 top-0 h-full w-[280px] bg-[#2b2d31] border-r border-[#1e1f22] flex flex-col z-40 transform transition-transform duration-300 ease-in-out ${
+            isOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          {sidebarContent}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="w-60 bg-[#2b2d31] flex flex-col h-full flex-shrink-0 select-none">
+      {sidebarContent}
     </div>
   );
 }

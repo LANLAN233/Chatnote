@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
 import { Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import ChannelList from "./ChannelList";
 import HomeSidebar from "../home/HomeSidebar";
 import ThreadPanel from "../thread/ThreadPanel";
 import { useServerStore } from "../../stores";
 import { statsApi } from "../../services";
+import { useIsMobile } from "../../hooks/useIsMobile";
 
 export default function AppLayout() {
   const { fetchServers } = useServerStore();
@@ -13,6 +15,8 @@ export default function AppLayout() {
   const [searchParams] = useSearchParams();
   const [homeTab, setHomeTab] = useState<"overview" | "console" | "import" | "inbox" | "recent" | "daily-summary">("overview");
   const [inboxBadge, setInboxBadge] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const loadBadge = useCallback(async () => {
     if (!localStorage.getItem("token")) return;
@@ -48,10 +52,32 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden relative font-sans text-[#dbdee1]">
-      <Sidebar />
-      {isHomePage && <HomeSidebar activeTab={homeTab} onTabChange={setHomeTab} inboxBadge={inboxBadge} />}
-      {showChannelList && <ChannelList />}
-      <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0 bg-[#313338]">
+      <Sidebar isMobile={isMobile} />
+      {isHomePage && (
+        <HomeSidebar
+          activeTab={homeTab}
+          onTabChange={setHomeTab}
+          inboxBadge={inboxBadge}
+          isOpen={isMobile ? mobileMenuOpen : undefined}
+          onClose={isMobile ? () => setMobileMenuOpen(false) : undefined}
+        />
+      )}
+      {showChannelList && (
+        <ChannelList
+          isOpen={isMobile ? mobileMenuOpen : undefined}
+          onClose={isMobile ? () => setMobileMenuOpen(false) : undefined}
+        />
+      )}
+      <main className={`flex-1 flex flex-col h-full overflow-hidden min-w-0 bg-[#313338] ${isMobile ? "relative pb-16" : ""}`}>
+        {isMobile && (
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="absolute top-3 left-3 z-20 p-2 rounded-lg bg-[#2b2d31] text-[#dbdee1] hover:bg-[#35373c] transition-colors"
+            aria-label="Open menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
         <Outlet context={{ homeTab, setHomeTab }} />
       </main>
       <ThreadPanel />

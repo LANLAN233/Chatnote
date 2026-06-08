@@ -5,7 +5,12 @@ import { useServerStore, useChannelStore } from "../../stores";
 import ChannelModal from "../channels/ChannelModal";
 import ServerFilesModal from "../servers/ServerFilesModal";
 
-export default function ChannelList() {
+interface ChannelListProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export default function ChannelList({ isOpen, onClose }: ChannelListProps) {
   const { servers, currentServerId } = useServerStore();
   const { channels, currentChannelId, fetchChannels, setCurrentChannel, deleteChannel } = useChannelStore();
   const [showAddChannel, setShowAddChannel] = useState(false);
@@ -22,6 +27,7 @@ export default function ChannelList() {
 
   const currentServer = servers.find((s) => s.id === currentServerId);
   const isConsole = location.pathname === "/console";
+  const isDrawerMode = isOpen !== undefined;
 
   useEffect(() => {
     if (currentServerId) {
@@ -34,23 +40,16 @@ export default function ChannelList() {
     if (currentServerId) {
       navigate(`/server/${currentServerId}/channel/${channelId}`);
     }
+    if (isDrawerMode && onClose) {
+      onClose();
+    }
   };
 
-  if (!currentServer) {
-    return (
-      <div className="w-60 bg-[#2b2d31] flex flex-col h-full flex-shrink-0 select-none">
-        <div className="p-4 text-[#949ba4] text-sm text-center">
-          Select a server to get started
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-60 bg-[#2b2d31] flex flex-col h-full flex-shrink-0 select-none">
+  const sidebarContent = (
+    <>
       {/* Server header */}
       <div className="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm cursor-pointer hover:bg-[#35373c] transition-colors">
-        <h1 className="font-bold text-white text-[15px] truncate">{currentServer.name}</h1>
+        <h1 className="font-bold text-white text-[15px] truncate">{currentServer ? currentServer.name : "Select a server"}</h1>
         <ChevronDown size={14} className="text-white opacity-60" />
       </div>
 
@@ -130,7 +129,6 @@ export default function ChannelList() {
         </div>
       </div>
 
-
       {/* Context menu */}
       {contextMenu && (
         <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)}>
@@ -185,6 +183,69 @@ export default function ChannelList() {
           entryType={showFilesModal}
         />
       )}
+    </>
+  );
+
+  if (!currentServer) {
+    const emptyContent = (
+      <div className="p-4 text-[#949ba4] text-sm text-center">
+        Select a server to get started
+      </div>
+    );
+
+    if (isDrawerMode) {
+      return (
+        <>
+          {isOpen && (
+            <div
+              className="fixed inset-0 bg-black/30 z-30 transition-opacity duration-300"
+              onClick={onClose}
+            />
+          )}
+          <div
+            className={`fixed left-0 top-0 h-full w-[280px] bg-[#2b2d31] border-r border-[#1e1f22] flex flex-col z-40 transform transition-transform duration-300 ease-in-out ${
+              isOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
+            {emptyContent}
+          </div>
+        </>
+      );
+    }
+
+    return (
+      <div className="w-60 bg-[#2b2d31] flex flex-col h-full flex-shrink-0 select-none">
+        {emptyContent}
+      </div>
+    );
+  }
+
+  if (isDrawerMode) {
+    return (
+      <>
+        {/* Backdrop overlay */}
+        {isOpen && (
+          <div
+            className="fixed inset-0 bg-black/30 z-30 transition-opacity duration-300"
+            onClick={onClose}
+          />
+        )}
+
+        {/* Drawer panel */}
+        <div
+          className={`fixed left-0 top-0 h-full w-[280px] bg-[#2b2d31] border-r border-[#1e1f22] flex flex-col z-40 transform transition-transform duration-300 ease-in-out ${
+            isOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          {sidebarContent}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="w-60 bg-[#2b2d31] flex flex-col h-full flex-shrink-0 select-none">
+      {sidebarContent}
     </div>
   );
 }
