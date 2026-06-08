@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import {
   BookOpen, Clock, ArrowRight, Star, Hash, Zap,
   Flame, TrendingUp, Tag, Inbox, Loader2, Sparkles, RefreshCw,
@@ -398,13 +399,13 @@ function OverviewTab() {
   return (
     <>
       {/* Header */}
-      <header className="h-48 bg-[#1e1f22] relative flex items-center px-12 overflow-hidden flex-shrink-0">
+      <header className="h-48 bg-[#1e1f22] relative flex items-center px-4 md:px-12 overflow-hidden flex-shrink-0">
         <div className="absolute inset-0 opacity-10 pointer-events-none">
           <div className="absolute top-0 right-0 w-96 h-96 bg-[#5865f2] rounded-full blur-[100px] -mr-48 -mt-48" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#23a559] rounded-full blur-[80px] -ml-32 -mb-32" />
         </div>
         <div className="z-10 w-full max-w-4xl">
-          <h1 className="text-3xl font-black text-white mb-2 italic tracking-tight">WELCOME BACK, SCHOLAR.</h1>
+          <h1 className="text-2xl md:text-3xl font-black text-white mb-2 italic tracking-tight">WELCOME BACK, SCHOLAR.</h1>
           <p className="text-[#b5bac1] text-lg mb-6">
             You've captured <span className="text-[#5865f2] font-bold">{totalNotes}</span> notes this week. Ready to learn more?
           </p>
@@ -416,7 +417,7 @@ function OverviewTab() {
               onFocus={() => setShowSearch(true)}
               readOnly
             />
-            <kbd className="absolute right-3 top-3 px-2 py-0.5 bg-[#1e1f22] text-[#949ba4] text-xs rounded border border-[#3f4147]">Ctrl + K</kbd>
+            <kbd className="hidden md:block absolute right-3 top-3 px-2 py-0.5 bg-[#1e1f22] text-[#949ba4] text-xs rounded border border-[#3f4147]">Ctrl + K</kbd>
           </div>
         </div>
       </header>
@@ -460,7 +461,7 @@ function OverviewTab() {
           </div>
         </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {/* Main column */}
           <section className="lg:col-span-2 space-y-8 flex flex-col">
             {/* Server Distribution & Top Tags */}
@@ -561,7 +562,7 @@ function OverviewTab() {
             )}
 
             {/* Quick Capture */}
-            <div className="bg-[#2b2d31] p-6 rounded-2xl border border-[#5865f2]/30 shadow-[0_0_20px_rgba(88,101,242,0.1)] relative group mt-auto">
+            <div className="bg-[#2b2d31] p-4 md:p-6 rounded-2xl border border-[#5865f2]/30 shadow-[0_0_20px_rgba(88,101,242,0.1)] relative group mt-auto">
               <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
                 <Zap size={64} className="text-[#5865f2]" />
               </div>

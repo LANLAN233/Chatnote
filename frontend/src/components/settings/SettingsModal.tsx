@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../../stores";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import { settingsApi, apiKeyApi } from "../../services";
 import { X, User, Key, Bell, Palette, Database, Brain, Shield, Loader2, CheckCircle2, AlertCircle, Trash2, Eye, EyeOff, Lock, Sparkles, Zap, Crown, Image } from "lucide-react";
 import ExportPanel from "./ExportPanel";
@@ -54,6 +55,8 @@ const tabGroups: TabGroup[] = [
   },
 ];
 
+const allTabs = tabGroups.flatMap((group) => group.tabs);
+
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { user, updateSettings, apiKeys, fetchApiKeys, addApiKey, deleteApiKey, toggleProvider, toggleProviderTier } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabId>("account");
@@ -92,6 +95,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setError("");
     }
   }, [isOpen, fetchApiKeys]);
+
+  const isMobile = useIsMobile();
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  useEffect(() => {
+    const activeBtn = tabRefs.current.get(activeTab);
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }
+  }, [activeTab]);
 
   const loadProviders = async () => {
     try {
@@ -208,9 +221,50 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex bg-[#313338] animate-in fade-in duration-200">
-      {/* Left Sidebar */}
-      <div className="w-[280px] bg-[#2b2d31] flex flex-col h-full flex-shrink-0">
+    <div className={`fixed inset-0 z-50 bg-[#313338] animate-in fade-in duration-200 ${isMobile ? "flex flex-col" : "flex"}`}>
+      {isMobile ? (
+        <>
+          {/* Mobile Header */}
+          <div className="h-14 px-4 flex items-center justify-between border-b border-[#1e1f22] flex-shrink-0">
+            <h2 className="text-white font-bold text-base">用户设置</h2>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#35373c] text-[#949ba4] hover:text-white transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* Mobile Tabs */}
+          <div className="flex overflow-x-auto border-b border-[#1e1f22] scrollbar-hide flex-shrink-0">
+            {allTabs.map((tab) => (
+              <button
+                key={tab.id}
+                ref={(el) => {
+                  if (el) tabRefs.current.set(tab.id, el);
+                }}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setError("");
+                  setSaved(false);
+                }}
+                className={`flex-shrink-0 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2
+                  ${activeTab === tab.id
+                    ? "text-white border-b-2 border-[#5865f2]"
+                    : "text-[#949ba4] hover:text-white"
+                  }`}
+              >
+                <span className={activeTab === tab.id ? "text-white" : "text-[#80848e]"}>
+                  {tab.icon}
+                </span>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        /* Desktop Sidebar */
+        <div className="w-[280px] bg-[#2b2d31] flex flex-col h-full flex-shrink-0">
         {/* Header */}
         <div className="h-14 px-4 flex items-center justify-between border-b border-[#1e1f22]">
           <h2 className="text-white font-bold text-base">用户设置</h2>
@@ -271,11 +325,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
       </div>
+      )}
 
-      {/* Right Content */}
+      {/* Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-10 max-w-3xl">
+        <div className={`flex-1 overflow-y-auto ${isMobile ? "p-4" : "p-10 max-w-3xl"}`}>
           {error && (
             <div className="mb-6 flex items-center gap-2 text-[#f23f43] text-sm bg-[#f23f43]/10 px-4 py-3 rounded-xl">
               <AlertCircle size={16} />

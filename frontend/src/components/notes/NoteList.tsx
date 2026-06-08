@@ -3,11 +3,12 @@ import { useParams } from "react-router-dom";
 import {
   Hash, Bell, Pin, Search, HelpCircle, PlusCircle,
   SendHorizontal, Image as ImageIcon, X, Pencil, Trash2, Check,
-  CornerDownLeft, Reply, MessageSquare,
+  CornerDownLeft, Reply, MessageSquare, MoreVertical,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useNoteStore, useChannelStore, useAuthStore, useThreadStore } from "../../stores";
 import { noteApi } from "../../services";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import type { Attachment, NoteReplyPreview } from "../../types";
 import NoteEditor from "./NoteEditor";
 import MentionHighlight from "../common/MentionHighlight";
@@ -66,6 +67,8 @@ export default function NoteList() {
   const [aiEnabled, setAiEnabled] = useState(true);
   const [pinnedNotes, setPinnedNotes] = useState<typeof notes>([]);
   const [replyTo, setReplyTo] = useState<NoteReplyPreview | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
   const prevNewestNoteId = useRef<number | null>(null);
@@ -126,6 +129,21 @@ export default function NoteList() {
     }
   }, []);
 
+  // Close mobile menu on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
+        setMobileMenuOpen(false);
+      }
+    }
+    if (mobileMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [mobileMenuOpen]);
+
   const filteredNotes = notes.filter((n) =>
     searchTerm === "" || n.content.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -168,43 +186,88 @@ export default function NoteList() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-4 text-[#b5bac1]">
-            <button
-              onClick={() => setShowPanel(showPanel === "threads" ? "none" : "threads")}
-              className={`hover:text-[#dbdee1] ${showPanel === "threads" ? "text-white" : ""}`}
-              title="Threads"
-            >
-              <MessageSquare size={20} />
-            </button>
-            <button
-              onClick={() => setShowPanel(showPanel === "notifications" ? "none" : "notifications")}
-              className={`hover:text-[#dbdee1] ${showPanel === "notifications" ? "text-white" : ""}`}
-              title="Notifications"
-            >
-              <Bell size={20} />
-            </button>
-            <button
-              onClick={() => setShowPanel(showPanel === "pins" ? "none" : "pins")}
-              className={`hover:text-[#dbdee1] ${showPanel === "pins" ? "text-white" : ""}`}
-              title="Pinned Messages"
-            >
-              <Pin size={20} />
-            </button>
+          <div className="flex items-center gap-2 md:gap-4 text-[#b5bac1] flex-1 md:flex-none justify-end">
+            {/* Desktop buttons */}
+            <div className="hidden md:flex items-center gap-4">
+              <button
+                onClick={() => setShowPanel(showPanel === "threads" ? "none" : "threads")}
+                className={`hover:text-[#dbdee1] ${showPanel === "threads" ? "text-white" : ""}`}
+                title="Threads"
+              >
+                <MessageSquare size={20} />
+              </button>
+              <button
+                onClick={() => setShowPanel(showPanel === "notifications" ? "none" : "notifications")}
+                className={`hover:text-[#dbdee1] ${showPanel === "notifications" ? "text-white" : ""}`}
+                title="Notifications"
+              >
+                <Bell size={20} />
+              </button>
+              <button
+                onClick={() => setShowPanel(showPanel === "pins" ? "none" : "pins")}
+                className={`hover:text-[#dbdee1] ${showPanel === "pins" ? "text-white" : ""}`}
+                title="Pinned Messages"
+              >
+                <Pin size={20} />
+              </button>
+            </div>
 
-            <div className="bg-[#1e1f22] px-2 py-[2px] rounded h-6 flex items-center gap-2">
+            {/* Search - mobile: flex-1, desktop: w-24 */}
+            <div className="bg-[#1e1f22] px-2 py-[2px] rounded h-6 flex items-center gap-2 flex-1 md:flex-none">
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search"
-                className="bg-transparent outline-none w-24 text-[13px] placeholder-[#949ba4] focus:w-40 transition-all text-white"
+                className="bg-transparent outline-none flex-1 md:w-24 text-[13px] placeholder-[#949ba4] md:focus:w-40 transition-all text-white min-w-0"
               />
-              {searchTerm ? <X size={14} className="cursor-pointer opacity-60 hover:opacity-100" onClick={() => setSearchTerm("")} /> : <Search size={14} className="opacity-60" />}
+              {searchTerm ? <X size={14} className="cursor-pointer opacity-60 hover:opacity-100 shrink-0" onClick={() => setSearchTerm("")} /> : <Search size={14} className="opacity-60 shrink-0" />}
             </div>
 
-            <button className="hover:text-[#dbdee1]" title="Help" onClick={() => alert("ChatNote Help:\n- Use @Server #Channel tags to categorize notes.\n- Use Control Panel to see raw system logs.\n- Use Plugins to extend bot behavior.")}>
+            {/* Desktop help button */}
+            <button className="hidden md:block hover:text-[#dbdee1]" title="Help" onClick={() => alert("ChatNote Help:\n- Use @Server #Channel tags to categorize notes.\n- Use Control Panel to see raw system logs.\n- Use Plugins to extend bot behavior.")}>
               <HelpCircle size={20} />
             </button>
+
+            {/* Mobile menu */}
+            <div className="relative md:hidden" ref={mobileMenuRef}>
+              <button
+                onClick={() => setMobileMenuOpen((v) => !v)}
+                className="hover:text-[#dbdee1]"
+                title="Menu"
+              >
+                <MoreVertical size={20} />
+              </button>
+              {mobileMenuOpen && (
+                <div className="absolute right-0 top-10 w-48 bg-[#2b2d31] border border-[#1e1f22] rounded-lg shadow-xl py-1 z-50">
+                  <button
+                    onClick={() => { setShowPanel(showPanel === "threads" ? "none" : "threads"); setMobileMenuOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-[#35373c] flex items-center gap-2 ${showPanel === "threads" ? "text-white" : "text-[#b5bac1]"}`}
+                  >
+                    <MessageSquare size={16} /> Threads
+                  </button>
+                  <button
+                    onClick={() => { setShowPanel(showPanel === "notifications" ? "none" : "notifications"); setMobileMenuOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-[#35373c] flex items-center gap-2 ${showPanel === "notifications" ? "text-white" : "text-[#b5bac1]"}`}
+                  >
+                    <Bell size={16} /> Notifications
+                  </button>
+                  <button
+                    onClick={() => { setShowPanel(showPanel === "pins" ? "none" : "pins"); setMobileMenuOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-[#35373c] flex items-center gap-2 ${showPanel === "pins" ? "text-white" : "text-[#b5bac1]"}`}
+                  >
+                    <Pin size={16} /> Pins
+                  </button>
+                  <div className="border-t border-[#1e1f22] my-1" />
+                  <button
+                    onClick={() => { alert("ChatNote Help:\n- Use @Server #Channel tags to categorize notes.\n- Use Control Panel to see raw system logs.\n- Use Plugins to extend bot behavior."); setMobileMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-[#35373c] flex items-center gap-2 text-[#b5bac1]"
+                  >
+                    <HelpCircle size={16} /> Help
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

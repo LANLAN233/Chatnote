@@ -7,8 +7,10 @@ import TodaySchedule from "./TodaySchedule";
 import type { Schedule, Server, Channel } from "../../types";
 import { scheduleApi } from "../../services/scheduleApi";
 import { serverApi, channelApi } from "../../services";
+import { useIsMobile } from "../../hooks/useIsMobile";
 
 export default function CalendarPage() {
+  const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -95,19 +97,19 @@ export default function CalendarPage() {
 
   return (
     <div className="flex-1 bg-[#313338] flex flex-col h-full overflow-hidden">
-      <header className="h-12 border-b border-[#1e1f22] px-4 flex items-center shadow-sm bg-[#313338] flex-shrink-0">
+      <header className="h-12 border-b border-[#1e1f22] px-3 md:px-4 flex items-center shadow-sm bg-[#313338] flex-shrink-0">
         <h2 className="font-bold text-white flex items-center gap-2 text-[15px]">
           <CalendarIcon size={20} className="text-[#23a559]" /> Study Schedule
         </h2>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto p-3 md:p-6">
         {/* View toggle */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex bg-[#1e1f22] rounded p-1">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-3">
+          <div className="flex bg-[#1e1f22] rounded p-1 w-full md:w-auto">
             <button
               onClick={() => setViewMode("week")}
-              className={`px-3 py-1 text-sm rounded transition-colors ${
+              className={`flex-1 md:flex-none px-3 py-1 text-sm rounded transition-colors ${
                 viewMode === "week"
                   ? "bg-[#383a40] text-white"
                   : "text-[#949ba4] hover:text-white"
@@ -117,7 +119,7 @@ export default function CalendarPage() {
             </button>
             <button
               onClick={() => setViewMode("month")}
-              className={`px-3 py-1 text-sm rounded transition-colors ${
+              className={`flex-1 md:flex-none px-3 py-1 text-sm rounded transition-colors ${
                 viewMode === "month"
                   ? "bg-[#383a40] text-white"
                   : "text-[#949ba4] hover:text-white"
@@ -133,24 +135,39 @@ export default function CalendarPage() {
               setSelectedSchedule(null);
               setIsModalOpen(true);
             }}
-            className="flex items-center gap-1 px-3 py-1.5 bg-[#5865f2] hover:bg-[#4752c4] text-white text-sm font-medium rounded transition-colors"
+            className="flex items-center justify-center gap-1 px-3 py-1.5 bg-[#5865f2] hover:bg-[#4752c4] text-white text-sm font-medium rounded transition-colors w-full md:w-auto"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            新建日程
+            <span className="hidden md:inline">新建日程</span>
+            <span className="md:hidden">新建</span>
           </button>
         </div>
 
         {/* Calendar view */}
         {viewMode === "week" ? (
-          <WeekView
-            currentDate={currentDate}
-            onDateChange={setCurrentDate}
-            servers={servers}
-            channels={channels}
-            refreshTrigger={refreshKey}
-          />
+          isMobile ? (
+            <div className="overflow-x-auto -mx-3 px-3">
+              <div className="min-w-[640px]">
+                <WeekView
+                  currentDate={currentDate}
+                  onDateChange={setCurrentDate}
+                  servers={servers}
+                  channels={channels}
+                  refreshTrigger={refreshKey}
+                />
+              </div>
+            </div>
+          ) : (
+            <WeekView
+              currentDate={currentDate}
+              onDateChange={setCurrentDate}
+              servers={servers}
+              channels={channels}
+              refreshTrigger={refreshKey}
+            />
+          )
         ) : (
           <MonthView
             currentDate={currentDate}
