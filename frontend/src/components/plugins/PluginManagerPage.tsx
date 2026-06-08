@@ -358,7 +358,7 @@ export default function PluginManagerPage() {
   return (
     <div className="flex-1 bg-[#313338] flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <header className="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm bg-[#313338] flex-shrink-0">
+      <header className="h-12 border-b border-[#1e1f22] pl-12 pr-4 md:px-4 flex items-center justify-between shadow-sm bg-[#313338] flex-shrink-0 relative">
         <h2 className="font-bold text-white flex items-center gap-2 text-[15px]">
           <Puzzle size={20} className="text-[#f23f43]" /> Bots & Plugins
         </h2>

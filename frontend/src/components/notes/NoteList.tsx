@@ -176,7 +176,7 @@ export default function NoteList() {
   return (
     <div className="flex-1 bg-[#313338] flex h-full overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm bg-[#313338] flex-shrink-0 z-10">
+        <header className="h-12 border-b border-[#1e1f22] pl-12 pr-4 md:px-4 flex items-center justify-between shadow-sm bg-[#313338] flex-shrink-0 z-10 relative">
           <div className="flex items-center gap-2">
             <Hash size={24} className="text-[#80848e]" />
             <h2 className="font-bold text-white text-[15px]">{channel.name.toLowerCase()}</h2>

@@ -263,7 +263,7 @@ export default function ConsoleCore({
 
   return (
     <div className="flex-1 bg-[#1e1f22] flex flex-col h-full overflow-hidden font-mono">
-      <header className="h-12 bg-[#313338] border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm flex-shrink-0">
+      <header className="h-12 bg-[#313338] border-b border-[#1e1f22] pl-12 pr-4 md:px-4 flex items-center justify-between shadow-sm flex-shrink-0 relative">
         <div className="flex items-center gap-2">
           {onBack && (
             <button onClick={onBack} className="text-[#949ba4] hover:text-white transition-colors" title="Back">

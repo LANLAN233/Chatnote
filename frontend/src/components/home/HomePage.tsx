@@ -399,7 +399,7 @@ function OverviewTab() {
   return (
     <>
       {/* Header */}
-      <header className="h-48 bg-[#1e1f22] relative flex items-center px-4 md:px-12 overflow-hidden flex-shrink-0">
+      <header className="h-48 bg-[#1e1f22] relative flex items-center pl-12 pr-4 md:px-12 overflow-hidden flex-shrink-0">
         <div className="absolute inset-0 opacity-10 pointer-events-none">
           <div className="absolute top-0 right-0 w-96 h-96 bg-[#5865f2] rounded-full blur-[100px] -mr-48 -mt-48" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#23a559] rounded-full blur-[80px] -ml-32 -mb-32" />
