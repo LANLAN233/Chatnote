@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
-import { Home, Terminal, Calendar, Puzzle, Plus, Settings } from "lucide-react";
+import { Home, Terminal, Calendar, Puzzle, Plus, Settings, Server } from "lucide-react";
 import { useServerStore, useAuthStore } from "../../stores";
 import ServerModal from "../servers/ServerModal";
 import SettingsModal from "../settings/SettingsModal";
 
 interface SidebarProps {
   isMobile?: boolean;
+  onServerSelect?: () => void;
 }
 
-export default function Sidebar({ isMobile = false }: SidebarProps) {
+export default function Sidebar({ isMobile = false, onServerSelect }: SidebarProps) {
   const { servers, currentServerId, setCurrentServer, deleteServer } = useServerStore();
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
@@ -37,6 +38,8 @@ export default function Sidebar({ isMobile = false }: SidebarProps) {
 
   // Mobile bottom navigation
   if (isMobile) {
+    const currentServer = servers.find((s) => s.id === currentServerId);
+    
     return (
       <>
         <div className="fixed bottom-0 left-0 right-0 h-16 bg-[#1e1f22] z-50 flex items-center justify-around px-2 select-none">
@@ -44,13 +47,32 @@ export default function Sidebar({ isMobile = false }: SidebarProps) {
           <button
             onClick={() => navigate("/")}
             className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200 ${
-              isHomeActive
+              isHomeActive && !currentPath.startsWith("/server/")
                 ? "bg-[#5865F2] text-white"
                 : "text-[#949ba4] hover:text-[#dbdee1]"
             }`}
             aria-label="Home"
           >
             <Home className="w-6 h-6" />
+          </button>
+
+          {/* Server Select */}
+          <button
+            onClick={onServerSelect}
+            className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200 ${
+              currentPath.startsWith("/server/")
+                ? "bg-[#5865F2] text-white"
+                : "text-[#949ba4] hover:text-[#dbdee1]"
+            }`}
+            aria-label="Server"
+          >
+            {currentServer ? (
+              <div className="w-6 h-6 rounded bg-[#5865F2] flex items-center justify-center text-white font-bold text-xs">
+                {currentServer.name.charAt(0).toUpperCase()}
+              </div>
+            ) : (
+              <Server className="w-6 h-6" />
+            )}
           </button>
 
           {/* Console */}
