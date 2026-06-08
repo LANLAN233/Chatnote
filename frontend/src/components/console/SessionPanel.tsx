@@ -1,4 +1,5 @@
-import { Plus, MessageSquare, Check, X, Edit3, Trash2, Save } from "lucide-react";
+import { Plus, MessageSquare, Check, X, Edit3, Trash2, Save, ArrowLeft } from "lucide-react";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import type { ConsoleSession } from "../../types";
 
 interface SessionPanelProps {
@@ -7,6 +8,8 @@ interface SessionPanelProps {
   editingSessionId: number | null;
   editingTitle: string;
   sidebarCollapsed: boolean;
+  isDrawerOpen?: boolean;
+  onCloseDrawer?: () => void;
   onSelectSession: (id: number) => void;
   onCreateSession: () => void;
   onDeleteSession: (id: number) => void;
@@ -23,6 +26,8 @@ export default function SessionPanel({
   editingSessionId,
   editingTitle,
   sidebarCollapsed,
+  isDrawerOpen,
+  onCloseDrawer,
   onSelectSession,
   onCreateSession,
   onDeleteSession,
@@ -32,10 +37,17 @@ export default function SessionPanel({
   onCancelEdit,
   onEditTitleChange,
 }: SessionPanelProps) {
-  if (sidebarCollapsed) return null;
+  const isMobile = useIsMobile();
 
-  return (
-    <aside className="w-64 bg-[#2b2d31] border-r border-[#1e1f22] flex flex-col flex-shrink-0">
+  const handleSelectSession = (id: number) => {
+    onSelectSession(id);
+    if (isMobile && onCloseDrawer) {
+      onCloseDrawer();
+    }
+  };
+
+  const sessionList = (
+    <>
       <div className="p-3 border-b border-[#1e1f22]">
         <button
           onClick={onCreateSession}
@@ -51,7 +63,7 @@ export default function SessionPanel({
           return (
             <div
               key={session.id}
-              onClick={() => onSelectSession(session.id)}
+              onClick={() => handleSelectSession(session.id)}
               className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
                 isActive
                   ? "bg-[#5865f2]/20 text-white"
@@ -144,6 +156,42 @@ export default function SessionPanel({
           </div>
         )}
       </div>
+    </>
+  );
+
+  // Mobile drawer mode
+  if (isMobile) {
+    if (!isDrawerOpen) return null;
+
+    return (
+      <>
+        <div
+          className="fixed inset-0 bg-black/30 z-30 transition-opacity duration-300"
+          onClick={onCloseDrawer}
+        />
+        <div className="fixed left-0 top-0 h-full w-[280px] bg-[#2b2d31] border-r border-[#1e1f22] flex flex-col z-40 transform transition-transform duration-300 ease-in-out translate-x-0">
+          <div className="h-12 px-4 flex items-center justify-between border-b border-[#1e1f22] flex-shrink-0">
+            <h2 className="text-white font-bold text-sm">Sessions</h2>
+            <button
+              onClick={onCloseDrawer}
+              className="text-[#949ba4] hover:text-white transition-colors"
+              title="Close"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          </div>
+          {sessionList}
+        </div>
+      </>
+    );
+  }
+
+  // Desktop sidebar mode
+  if (sidebarCollapsed) return null;
+
+  return (
+    <aside className="w-64 bg-[#2b2d31] border-r border-[#1e1f22] flex flex-col flex-shrink-0">
+      {sessionList}
     </aside>
   );
 }

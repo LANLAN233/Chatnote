@@ -1,4 +1,4 @@
-import { LayoutDashboard, Terminal, Upload, Inbox, History, Sparkles } from "lucide-react";
+import { LayoutDashboard, Terminal, Upload, Inbox, History, Sparkles, ArrowLeft } from "lucide-react";
 
 interface HomeSidebarProps {
   activeTab: "overview" | "console" | "import" | "inbox" | "recent" | "daily-summary";
@@ -29,11 +29,6 @@ export default function HomeSidebar({ activeTab, onTabChange, inboxBadge = 0, is
 
   const sidebarContent = (
     <>
-      {/* Header */}
-      <div className="h-12 border-b border-[#1e1f22] px-4 flex items-center shadow-sm">
-        <h1 className="font-bold text-white text-[15px] truncate">首页</h1>
-      </div>
-
       <div className="flex-1 overflow-y-auto pt-3 px-2 scrollbar-hide">
         <div className="space-y-[2px]">
           {tabs.map((tab) => {
@@ -86,6 +81,16 @@ export default function HomeSidebar({ activeTab, onTabChange, inboxBadge = 0, is
             isOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
+          <div className="h-12 px-4 flex items-center justify-between border-b border-[#1e1f22] flex-shrink-0">
+            <h2 className="text-white font-bold text-sm">首页</h2>
+            <button
+              onClick={onClose}
+              className="text-[#949ba4] hover:text-white transition-colors"
+              title="Close"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          </div>
           {sidebarContent}
         </div>
       </>
@@ -94,6 +99,10 @@ export default function HomeSidebar({ activeTab, onTabChange, inboxBadge = 0, is
 
   return (
     <div className="w-60 bg-[#2b2d31] flex flex-col h-full flex-shrink-0 select-none">
+      {/* Header */}
+      <div className="h-12 border-b border-[#1e1f22] px-4 flex items-center shadow-sm">
+        <h1 className="font-bold text-white text-[15px] truncate">首页</h1>
+      </div>
       {sidebarContent}
     </div>
   );

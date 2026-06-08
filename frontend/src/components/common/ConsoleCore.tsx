@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Terminal, RefreshCw, ChevronLeft, ChevronRight, X,
+  Terminal, RefreshCw, ChevronLeft, ChevronRight, X, MessageSquare,
 } from "lucide-react";
 import type { ConsoleMessage, ConsoleMessageMetadata, ConsoleSession, LoadedContext, Server, Channel } from "../../types";
 import { useAiProgress } from "../../hooks/useAiProgress";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import { consoleSessionApi, serverApi, channelApi, wsService } from "../../services";
 import MessageList from "../console/MessageList";
 import ConsoleInput from "../console/ConsoleInput";
@@ -42,11 +43,13 @@ export default function ConsoleCore({
   onToggleAI, executeFn, getSuggestions, headerTitle,
   footerLabel = "Smart Capture", initMessages = [], onNavigateToSource,
 }: ConsoleCoreProps) {
+  const isMobile = useIsMobile();
   const [sessions, setSessions] = useState<ConsoleSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [loadingSession, setLoadingSession] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -271,7 +274,16 @@ export default function ConsoleCore({
           <h2 className="font-bold text-white text-[14px] uppercase tracking-wider">{title}</h2>
         </div>
         <div className="flex items-center gap-3">
-          {!compact && (
+          {isMobile && (
+            <button
+              onClick={() => setSessionDrawerOpen(true)}
+              className="text-[#949ba4] hover:text-white transition-colors"
+              title="Sessions"
+            >
+              <MessageSquare size={18} />
+            </button>
+          )}
+          {!compact && !isMobile && (
             <button onClick={() => setSidebarCollapsed(v => !v)} className="text-[#949ba4] hover:text-white transition-colors" title="Toggle Sidebar">
               {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
             </button>
@@ -298,6 +310,7 @@ export default function ConsoleCore({
         <SessionPanel
           sessions={sessions} currentSessionId={currentSessionId} editingSessionId={editingSessionId}
           editingTitle={editingTitle} sidebarCollapsed={sidebarCollapsed}
+          isDrawerOpen={sessionDrawerOpen} onCloseDrawer={() => setSessionDrawerOpen(false)}
           onSelectSession={selectSession} onCreateSession={createSession} onDeleteSession={deleteSession}
           onArchiveSession={openArchiveDialog} onStartEditTitle={startEditTitle} onSaveTitle={saveTitle}
           onCancelEdit={() => setEditingSessionId(null)} onEditTitleChange={setEditingTitle}

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { Hash, Plus, ChevronDown, Book, Folder } from "lucide-react";
+import { Hash, Plus, ChevronDown, Book, Folder, ArrowLeft, Server } from "lucide-react";
 import { useServerStore, useChannelStore } from "../../stores";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import ChannelModal from "../channels/ChannelModal";
 import ServerFilesModal from "../servers/ServerFilesModal";
 
@@ -11,7 +12,8 @@ interface ChannelListProps {
 }
 
 export default function ChannelList({ isOpen, onClose }: ChannelListProps) {
-  const { servers, currentServerId } = useServerStore();
+  const isMobile = useIsMobile();
+  const { servers, currentServerId, setCurrentServer } = useServerStore();
   const { channels, currentChannelId, fetchChannels, setCurrentChannel, deleteChannel } = useChannelStore();
   const [showAddChannel, setShowAddChannel] = useState(false);
   const [editingChannel, setEditingChannel] = useState<{
@@ -22,6 +24,7 @@ export default function ChannelList({ isOpen, onClose }: ChannelListProps) {
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [showFilesModal, setShowFilesModal] = useState<false | "library" | "my-assets">(false);
+  const [showServerList, setShowServerList] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -34,6 +37,17 @@ export default function ChannelList({ isOpen, onClose }: ChannelListProps) {
       fetchChannels(currentServerId);
     }
   }, [currentServerId, fetchChannels]);
+
+  const handleServerClick = (serverId: number) => {
+    setCurrentServer(serverId);
+    setShowServerList(false);
+    const server = servers.find((s) => s.id === serverId);
+    if (server?.primary_channel_id) {
+      navigate(`/server/${serverId}/channel/${server.primary_channel_id}`);
+    } else {
+      navigate(`/server/${serverId}`);
+    }
+  };
 
   const handleChannelClick = (channelId: number) => {
     setCurrentChannel(channelId);
@@ -48,10 +62,39 @@ export default function ChannelList({ isOpen, onClose }: ChannelListProps) {
   const sidebarContent = (
     <>
       {/* Server header */}
-      <div className="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm cursor-pointer hover:bg-[#35373c] transition-colors">
+      <div
+        className="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm cursor-pointer hover:bg-[#35373c] transition-colors"
+        onClick={() => isMobile && setShowServerList(!showServerList)}
+      >
         <h1 className="font-bold text-white text-[15px] truncate">{currentServer ? currentServer.name : "Select a server"}</h1>
-        <ChevronDown size={14} className="text-white opacity-60" />
+        {isMobile ? (
+          <ChevronDown size={14} className={`text-white opacity-60 transition-transform ${showServerList ? "rotate-180" : ""}`} />
+        ) : (
+          <ChevronDown size={14} className="text-white opacity-60" />
+        )}
       </div>
+
+      {/* Server list (mobile only) */}
+      {isMobile && showServerList && (
+        <div className="border-b border-[#1e1f22] bg-[#2b2d31] max-h-[200px] overflow-y-auto">
+          {servers.map((server) => (
+            <button
+              key={server.id}
+              onClick={() => handleServerClick(server.id)}
+              className={`w-full text-left px-4 py-2 flex items-center gap-2 transition-colors ${
+                currentServerId === server.id
+                  ? "bg-[#5865f2]/20 text-white"
+                  : "text-[#949ba4] hover:bg-[#35373c] hover:text-gray-200"
+              }`}
+            >
+              <div className="w-8 h-8 rounded-lg bg-[#5865f2] flex items-center justify-center text-white font-bold text-sm shrink-0">
+                {server.name.charAt(0).toUpperCase()}
+              </div>
+              <span className="truncate text-sm font-medium">{server.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto pt-3 px-2 scrollbar-hide">
         {/* Channels */}
@@ -237,6 +280,16 @@ export default function ChannelList({ isOpen, onClose }: ChannelListProps) {
             isOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
+          <div className="h-12 px-4 flex items-center justify-between border-b border-[#1e1f22] flex-shrink-0">
+            <h2 className="text-white font-bold text-sm">Channels</h2>
+            <button
+              onClick={onClose}
+              className="text-[#949ba4] hover:text-white transition-colors"
+              title="Close"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          </div>
           {sidebarContent}
         </div>
       </>
